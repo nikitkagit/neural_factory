@@ -386,10 +386,13 @@ def test_self_reevaluation_with_concurrent_inputs():
     t = threading.Thread(target=runner)
     t.start()
 
-    # Wait for a1 to start executing
+    # Wait for both tasks to start executing
     assert a1.started.wait(timeout=5.0), "a1 did not start"
-    # Now release a1 so it can finish
+    assert a2.started.wait(timeout=5.0), "a2 did not start"
+    
+    # Release both tasks
     a1.release.set()
+    a2.release.set()
 
     t.join(timeout=10.0)
     assert not t.is_alive(), "orchestrator did not finish"
