@@ -1,0 +1,93 @@
+from __future__ import annotations
+from typing import List, Tuple, Union, Optional
+
+
+class Prompt:
+    """
+    A composable prompt builder.
+
+    Each Prompt instance stores a list of (priority, text) pieces.
+    When converted to a string, the pieces are sorted by priority
+    (lower number = earlier in the final text) and joined with ". ".
+    """
+
+    def __init__(
+        self,
+        text: str = "",
+        priority: Union[int, float] = 0,
+        _pieces: Optional[List[Tuple[Union[int, float], str]]] = None,
+    ) -> None:
+        """
+        Initialize a Prompt.
+
+        :param text: The text of this prompt piece.
+        :param priority: Sorting priority (lower = earlier in output).
+        :param _pieces: Internal list used when combining prompts.
+        """
+        if _pieces is not None:
+            self.pieces: List[Tuple[Union[int, float], str]] = list(_pieces)
+        else:
+            self.pieces = [(priority, text)]
+
+    def __add__(self, other: Union["Prompt", str]) -> "Prompt":
+        """Handle Prompt + Prompt and Prompt + str."""
+        if isinstance(other, Prompt):
+            return Prompt(_pieces=self.pieces + other.pieces)
+        if isinstance(other, str):
+            # Plain strings are appended at the very end.
+            return Prompt(_pieces=self.pieces + [(float("inf"), other)])
+        return NotImplemented
+
+    def __radd__(self, other: Union["Prompt", str]) -> "Prompt":
+        """Handle str + Prompt (left-side string concatenation)."""
+        if isinstance(other, str):
+            # A string on the left gets the highest priority (earliest position).
+            return Prompt(_pieces=[(float("-inf"), other)] + self.pieces)
+        return NotImplemented
+
+    def __str__(self) -> str:
+        """Render the combined prompt as a single string."""
+        # 1. Sort pieces by priority.
+        sorted_pieces = sorted(self.pieces, key=lambda item: item[0])
+
+        # 2. Clean each piece: strip whitespace and trailing dots.
+        cleaned_texts = [
+            text.strip().rstrip(".")
+            for _, text in sorted_pieces
+            if text and text.strip()
+        ]
+
+        # 3. Join with ". " to form a single sentence.
+        return ". ".join(cleaned_texts)
+
+    def __repr__(self) -> str:
+        return f"Prompt({str(self)!r})"
+
+    def __bool__(self) -> bool:
+        """A Prompt is truthy if it contains any non-empty text."""
+        return any(text.strip() for _, text in self.pieces)
+
+
+
+# ---------------------------------------------------------------------------
+# Base prompts
+# ---------------------------------------------------------------------------
+
+
+SHORT = Prompt(
+    "Respond as briefly and to the point as possible",
+    priority=200
+)
+CODE_ONLY = Prompt(
+    "Output ONLY clean Python code. No explanations, no markdown wrappers (```), no comments outside the code. Only the executable code itself",
+    priority=100
+)
+PATHS_RELATIVE_TO_ROOT = Prompt(
+    "All file paths provided or requested are strictly relative to the project root directory.",
+    priority=50
+)
+
+
+def make_context_prompt(user_name: str, priority: int = 5) -> Prompt:
+    """Creates a prompt with user name context."""
+    return Prompt(f"User name: {user_name}", priority=priority)
