@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-API_KEY = os.environ.get("ROUTERAI_KEY", "sk-HIuZLfuAPe92nKLcbUJC4cwLRa1Zs4R5")
+API_KEY = os.environ.get("API_KEY", "sk-HIuZLfuAPe92nKLcbUJC4cwLRa1Zs4R5")
 API_URL = "https://routerai.ru/api/v1/chat/completions"
 
 # 1. Определяем состояние пайплайна
