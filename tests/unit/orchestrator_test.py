@@ -500,15 +500,15 @@ def test_exact_policy_without_required_edges_never_activates():
 # Tests: all policy with no inputs
 # ---------------------------------------------------------------------------
 
-def test_all_policy_with_no_inputs_does_not_activate():
-    """AllPolicy requires all inputs to be fresh; with no inputs, it returns False."""
+def test_all_policy_with_no_inputs_activates():
+    """AllPolicy activates unconditionally when there are no inputs."""
     orch = build_orchestrator()
     orch.add_task(EchoTask("src", AllPolicy()))
 
     report = orch.run()
 
-    assert report["tasks"]["src"]["run_count"] == 0
-    assert report["tasks"]["src"]["status"] == "IDLE"
+    assert report["tasks"]["src"]["run_count"] == 1
+    assert report["tasks"]["src"]["status"] == "DONE"
 
 
 # ---------------------------------------------------------------------------

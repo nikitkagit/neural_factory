@@ -189,9 +189,10 @@ class Orchestrator:
                     
         # Self-re-evaluation: check if the task itself needs to run again
         # because new inputs might have arrived while it was running.
-        ctx = self._build_policy_context(task.task_id, TriggerType.EDGE)
-        if task.activation_policy.should_activate(ctx):
-            self.ready_queue.add(task.task_id)
+        if self.in_edges[task.task_id]:
+            ctx = self._build_policy_context(task.task_id, TriggerType.EDGE)
+            if task.activation_policy.should_activate(ctx):
+                self.ready_queue.add(task.task_id)
 
     def _handle_error(self, task: Task, error: Exception) -> None:
         """Handles execution failures based on the task's failure policy."""

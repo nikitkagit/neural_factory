@@ -76,8 +76,6 @@ class AllPolicy(ActivationPolicy):
     """
 
     def should_activate(self, ctx: PolicyContext) -> bool:
-        if not ctx.fresh:
-            return False
         return all(ctx.fresh.values())
 
 
