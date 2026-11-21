@@ -190,11 +190,10 @@ def test_linear_dag_once_policy():
     assert report["tasks"]["src"]["run_count"] == 1
     assert report["tasks"]["dst"]["run_count"] == 1
     assert report["tasks"]["src"]["version"] == 1
-    # dst received src's output under key "echo"
+    # Inputs are now flattened, so dst receives src's output directly
     dst_state = orch.tasks["dst"].state
     assert dst_state is not None
     assert "echo" in dst_state
-    assert "src" in dst_state["echo"]
 
 
 def test_all_policy_requires_all_fresh():

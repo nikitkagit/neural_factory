@@ -2,7 +2,7 @@ import time
 import queue
 import copy
 import uuid
-from typing import Dict, Set, List, Any, Type
+from typing import Dict, Set, List, Any, Type, Optional
 
 from .task import Task, TaskId, TaskStatus
 from .edge import Edge, EdgeId
@@ -43,8 +43,17 @@ class Orchestrator:
         self.out_edges[task.task_id] = []
         self.in_edges[task.task_id] = []
 
-    def add_edge(self, src_id: TaskId, dst_id: TaskId) -> EdgeId:
-        """Add an edge to the graph. Validates existence of endpoints and uniqueness."""
+    def add_edge(
+        self, 
+        src_id: TaskId, 
+        dst_id: TaskId, 
+        aliases: Optional[Dict[str, str]] = None
+    ) -> EdgeId:
+        """
+        Add an edge to the graph. Validates existence of endpoints and uniqueness.
+        
+        :param aliases: Optional field name remapping {src_field: dst_field}
+        """
         if src_id not in self.tasks:
             raise ValueError(f"Source task {src_id} does not exist")
         if dst_id not in self.tasks:
@@ -55,7 +64,7 @@ class Orchestrator:
         if edge_id in self.edges:
             raise ValueError(f"Edge {edge_id} already exists")
             
-        edge = Edge(edge_id=edge_id, src=src_id, dst=dst_id)
+        edge = Edge(edge_id=edge_id, src=src_id, dst=dst_id, aliases=aliases or {})
         self.edges[edge_id] = edge
         self.out_edges[src_id].append(edge_id)
         self.in_edges[dst_id].append(edge_id)
@@ -122,13 +131,17 @@ class Orchestrator:
                 continue
                 
             # Gather inputs at the moment of launch (latest-wins)
+            # By default, all inputs are flattened into a single dict
             inputs = {}
             for edge_id in self.in_edges[task_id]:
                 edge = self.edges[edge_id]
                 src_task = self.tasks[edge.src]
                 if src_task.state is not None:
-                    # Deep copy inputs to prevent tasks from mutating shared state
-                    inputs[edge.src] = copy.deepcopy(src_task.state)
+                    src_state = copy.deepcopy(src_task.state)
+                    # Apply field aliases and flatten into inputs
+                    for key, value in src_state.items():
+                        new_key = edge.aliases.get(key, key)
+                        inputs[new_key] = value
                     # Mark exactly what is read as consumed
                     edge.mark_consumed(src_task.version)
             
@@ -238,6 +251,7 @@ class Orchestrator:
             report["edges"][edge_id] = {
                 "src": edge.src,
                 "dst": edge.dst,
-                "consumed_version": edge.consumed_version
+                "consumed_version": edge.consumed_version,
+                "aliases": edge.aliases
             }
         return report
