@@ -141,3 +141,6 @@ def make_code_prompt(code: str, priority: int = 1000) -> Prompt:
 
 def make_specification_prompt(spec: str, priority: int = 1000) -> Prompt:
     return Prompt(f"Main specification: {spec}", priority=priority)
+
+def make_previous_specification_prompt(spec: str, priority: int = 1000) -> Prompt:
+    return Prompt(f"Previous specification: {spec}", priority=priority)

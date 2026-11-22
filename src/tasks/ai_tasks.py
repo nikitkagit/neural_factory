@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 from src.fab.task import Task, TaskId
 from src.prompt import (
     Prompt, make_request_prompt, make_code_prompt, make_specification_prompt,
+    make_previous_specification_prompt,
     GEN_SPEC, NO_CODE, GEN_SPEC_FOR_TESTS
 )
 from src.fab.policy import (
@@ -52,6 +53,7 @@ class SpecWriterTask(Task):
     """
     Writes a specification for existing code.
     Accepts 'code' (str) and 'request' (str) in inputs.
+    Optionally accepts 'previous_specification' (str) in inputs.
     Combines them with a system prompt to generate a specification in Russian.
     """
 
@@ -67,6 +69,7 @@ class SpecWriterTask(Task):
     def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         code = inputs.get("code")
         request = inputs.get("request")
+        previous_specification = inputs.get("previous_specification")
 
         if not code or not isinstance(code, str):
             raise ValueError("Input must contain 'code' (str).")
@@ -76,6 +79,10 @@ class SpecWriterTask(Task):
         # Build the combined prompt with code and request
         combined = GEN_SPEC + NO_CODE
         combined += make_code_prompt(code) + make_request_prompt(request)
+
+        # Add previous specification if present and is a string
+        if previous_specification is not None and isinstance(previous_specification, str):
+            combined += make_previous_specification_prompt(previous_specification)
 
         messages = [
             {"role": "user", "content": str(combined)}
@@ -91,11 +98,15 @@ class SpecWriterTask(Task):
         
         response_text = call_ai(payload)
 
-        return [{
+        result = {
             "specification": response_text,
             "code": code,
             "request": request
-        }]
+        }
+        if previous_specification is not None and isinstance(previous_specification, str):
+            result["previous_specification"] = previous_specification
+
+        return [result]
 
 class TestSpecWriterTask(Task):
     """
