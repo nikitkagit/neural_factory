@@ -574,9 +574,3 @@ def test_all_but_one_single_policy_invalid():
     }
     with pytest.raises(ValueError):
         policy.merge(incoming)
-
-
-def test_task_with_cartesian_merge_creates_multiple_instances():
-    """Verify that the default merge policy on a Task is CartesianProductMergePolicy."""
-    task = EchoTask("t", OncePolicy())
-    assert isinstance(task.merge_policy, CartesianProductMergePolicy)

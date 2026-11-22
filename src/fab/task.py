@@ -6,7 +6,7 @@ from .types import TaskId
 
 from .policy import (
     ActivationPolicy, FailurePolicy, FailFailurePolicy,
-    InputMergePolicy, CartesianProductMergePolicy
+    InputMergePolicy, AllButOneSinglePolicy
 )
 
 
@@ -46,7 +46,7 @@ class Task:
     ):
         self.task_id: TaskId = task_id
         self.activation_policy: ActivationPolicy = activation_policy
-        self.merge_policy: InputMergePolicy = merge_policy or CartesianProductMergePolicy()
+        self.merge_policy: InputMergePolicy = merge_policy or AllButOneSinglePolicy()
         self.failure_policy: FailurePolicy = failure_policy or FailFailurePolicy()
 
         # Fields managed by the orchestrator
