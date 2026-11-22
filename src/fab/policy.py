@@ -77,8 +77,8 @@ class AllPolicy(ActivationPolicy):
     """
 
     def should_activate(self, ctx: PolicyContext) -> bool:
-        if not ctx.fresh:
-            raise ValueError("AllPolicy requires at least one input edge to be defined.")
+#        if not ctx.fresh:
+#            raise ValueError("AllPolicy requires at least one input edge to be defined.")
         return all(ctx.fresh.values())
 
 

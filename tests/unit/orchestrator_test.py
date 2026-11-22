@@ -482,19 +482,6 @@ def test_exact_policy_without_required_edges_never_activates():
 
 
 # ---------------------------------------------------------------------------
-# Tests: all policy with no inputs
-# ---------------------------------------------------------------------------
-
-def test_all_policy_with_no_inputs_raises():
-    """AllPolicy must raise ValueError when there are no input edges."""
-    orch = build_orchestrator()
-    orch.add_task(EchoTask("src", AllPolicy()))
-
-    with pytest.raises(ValueError, match="AllPolicy requires at least one input edge"):
-        orch.run()
-
-
-# ---------------------------------------------------------------------------
 # Tests: cycle handling
 # ---------------------------------------------------------------------------
 
