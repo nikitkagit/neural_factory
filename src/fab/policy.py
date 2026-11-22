@@ -142,7 +142,13 @@ class CartesianProductMergePolicy(InputMergePolicy):
             
         keys = list(incoming.keys())
         combos = itertools.product(*(incoming[k] for k in keys))
-        return [{k: v for k, v in zip(keys, combo)} for combo in combos]
+        result = []
+        for combo in combos:
+            merged = {}
+            for d in combo:
+                merged.update(d)
+            result.append(merged)
+        return result
 
 
 class SingleItemPerSourcePolicy(InputMergePolicy):

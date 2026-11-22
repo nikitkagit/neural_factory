@@ -11,6 +11,7 @@ from src.fab.policy import (
     OncePolicy, AllPolicy, AnyPolicy, ExactPolicy, ActivationPolicyConfig,
     RetryFailurePolicy, SkipFailurePolicy, FailFailurePolicy,
     CartesianProductMergePolicy, SingleItemPerSourcePolicy, AllButOneSinglePolicy,
+    FlattenMergePolicy,
 )
 from src.fab.executor import InlineExecutor, ThreadPoolExecutorBackend, CompletionEvent
 from src.fab.orchestrator import Orchestrator
@@ -521,8 +522,8 @@ def test_cartesian_product_merge():
     }
     result = policy.merge(incoming)
     assert len(result) == 2
-    assert {"A": {"val": 1}, "B": {"char": "x"}} in result
-    assert {"A": {"val": 2}, "B": {"char": "x"}} in result
+    assert {"val": 1, "char": "x"} in result
+    assert {"val": 2, "char": "x"} in result
 
 
 def test_cartesian_product_empty_source():
@@ -543,7 +544,7 @@ def test_single_item_per_source_policy_valid():
     }
     result = policy.merge(incoming)
     assert len(result) == 1
-    assert result[0] == {"A": {"val": 1}, "B": {"char": "x"}}
+    assert result[0] == {"val": 1, "char": "x"}
 
 
 def test_single_item_per_source_policy_invalid():
@@ -574,3 +575,23 @@ def test_all_but_one_single_policy_invalid():
     }
     with pytest.raises(ValueError):
         policy.merge(incoming)
+
+
+def test_flatten_merge_policy():
+    policy = FlattenMergePolicy()
+    incoming = {
+        "A": [{"x": 1}, {"x": 2}],
+        "B": [{"y": 3}]
+    }
+    result = policy.merge(incoming)
+    assert len(result) == 3
+    assert {"A": {"x": 1}} in result
+    assert {"A": {"x": 2}} in result
+    assert {"B": {"y": 3}} in result
+
+
+def test_flatten_merge_policy_empty():
+    policy = FlattenMergePolicy()
+    incoming = {}
+    result = policy.merge(incoming)
+    assert result == []
