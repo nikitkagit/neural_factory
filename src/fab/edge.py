@@ -1,10 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Dict
 
-from .task import TaskId
+from .types import TaskId, EdgeId
 
-# Type alias for edge identification
-EdgeId = str
 
 
 @dataclass

@@ -1,9 +1,10 @@
+import itertools
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional
+from .types import EdgeId
+from .types import TaskId
 
-# Type aliases for clarity and decoupling
-EdgeId = str
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +77,8 @@ class AllPolicy(ActivationPolicy):
     """
 
     def should_activate(self, ctx: PolicyContext) -> bool:
+        if not ctx.fresh:
+            raise ValueError("AllPolicy requires at least one input edge to be defined.")
         return all(ctx.fresh.values())
 
 
@@ -106,11 +109,99 @@ class ExactPolicy(ActivationPolicy):
 
 
 # ---------------------------------------------------------------------------
+# Input Merge policies
+# ---------------------------------------------------------------------------
+
+class InputMergePolicy:
+    """
+    Base class for input merging strategies.
+    Pure function, no side effects, no knowledge of graph/edges/versions.
+    Answers the question: "How to combine incoming data packets into execution snapshots?"
+    """
+
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """
+        Accepts a dictionary mapping source TaskId to a list of its fresh states.
+        Returns a list of flat snapshot dictionaries, each representing one task instance execution.
+        """
+        raise NotImplementedError("Subclasses must implement merge")
+
+
+class CartesianProductMergePolicy(InputMergePolicy):
+    """
+    Cartesian product of all incoming lists.
+    If any source list is empty, returns an empty list (no execution).
+    """
+
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        if not incoming:
+            return [{}]
+        
+        if any(len(v) == 0 for v in incoming.values()):
+            return []
+            
+        keys = list(incoming.keys())
+        combos = itertools.product(*(incoming[k] for k in keys))
+        return [{k: v for k, v in zip(keys, combo)} for combo in combos]
+
+
+class SingleItemPerSourcePolicy(InputMergePolicy):
+    """
+    Strict variant: each source must provide at most one state.
+    Combines them into a single snapshot. Raises ValueError if any source has >1 item.
+    """
+
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        for k, v in incoming.items():
+            if len(v) > 1:
+                raise ValueError(f"Source {k} provided {len(v)} items, expected <= 1")
+        
+        # Reuse cartesian logic, which is safe here since max length is 1
+        return CartesianProductMergePolicy().merge(incoming)
+
+
+class AllButOneSinglePolicy(InputMergePolicy):
+    """
+    Relaxed variant: at most one source can provide multiple states (the "main axis").
+    All other sources must provide <= 1 state (static context).
+    Raises ValueError if more than one source has >1 item.
+    """
+
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        multi_sources = [k for k, v in incoming.items() if len(v) > 1]
+        if len(multi_sources) > 1:
+            raise ValueError(f"Multiple sources provided >1 item: {multi_sources}")
+            
+        return CartesianProductMergePolicy().merge(incoming)
+
+
+class FlattenMergePolicy(InputMergePolicy):
+    """
+    Flattens all incoming states from all sources into a single list of snapshots.
+    Each snapshot contains data from exactly one source state.
+    
+    Example:
+        Input:  {"A": [{"x": 1}, {"x": 2}], "B": [{"y": 3}]}
+        Output: [{"A": {"x": 1}}, {"A": {"x": 2}}, {"B": {"y": 3}}]
+        
+    This is useful for fan-in scenarios where multiple parallel branches 
+    produce independent results that should be processed sequentially by the next task.
+    """
+
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        result = []
+        for src_id, states in incoming.items():
+            for state in states:
+                result.append({src_id: state})
+        return result
+
+
+# ---------------------------------------------------------------------------
 # Failure policies
 # ---------------------------------------------------------------------------
 
 class FailureAction(Enum):
-    """Action to take when a task fails."""
+    """Action to take when a task instance fails."""
     RETRY = auto()
     SKIP = auto()
     FAIL = auto()
@@ -119,7 +210,7 @@ class FailureAction(Enum):
 class FailurePolicy:
     """
     Base class for failure handling strategies.
-    Pure logic, no side effects, no references to Task/Edge/graph objects.
+    Pure logic, no side effects.
     Answers the question: "What to do after a failure?"
     """
 

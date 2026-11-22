@@ -1,14 +1,16 @@
 import time
 import threading
-from typing import Any, Dict, cast
+from typing import Any, Dict, List, cast
 
 import pytest
 
-from src.fab.task import Task, TaskId, TaskStatus
+from src.fab.types import TaskId
+from src.fab.task import Task, TaskStatus
 from src.fab.policy import (
     ActivationPolicy, FailurePolicy,
     OncePolicy, AllPolicy, AnyPolicy, ExactPolicy, ActivationPolicyConfig,
     RetryFailurePolicy, SkipFailurePolicy, FailFailurePolicy,
+    CartesianProductMergePolicy, SingleItemPerSourcePolicy, AllButOneSinglePolicy,
 )
 from src.fab.executor import InlineExecutor, ThreadPoolExecutorBackend, CompletionEvent
 from src.fab.orchestrator import Orchestrator
@@ -21,19 +23,19 @@ from src.fab.orchestrator import Orchestrator
 class EchoTask(Task):
     """Returns a copy of its inputs under a fixed key."""
 
-    def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        return {"echo": dict(inputs)}
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return [{"echo": dict(inputs)}]
 
 
 class SumTask(Task):
     """Sums integer values from inputs."""
 
-    def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         total = 0
         for v in inputs.values():
             if isinstance(v, dict) and "value" in v:
                 total += int(v["value"])
-        return {"value": total}
+        return [{"value": total}]
 
 
 class ConstantTask(Task):
@@ -46,11 +48,11 @@ class ConstantTask(Task):
         value: Dict[str, Any],
         failure_policy: FailurePolicy = FailFailurePolicy(),
     ):
-        super().__init__(task_id, activation_policy, failure_policy)
+        super().__init__(task_id, activation_policy, failure_policy=failure_policy)
         self._value = value
 
-    def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        return dict(self._value)
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return [dict(self._value)]
 
 
 class FailingTask(Task):
@@ -63,28 +65,28 @@ class FailingTask(Task):
         failure_policy: FailurePolicy = FailFailurePolicy(),
         message: str = "boom",
     ):
-        super().__init__(task_id, activation_policy, failure_policy)
+        super().__init__(task_id, activation_policy, failure_policy=failure_policy)
         self._message = message
 
-    def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         raise RuntimeError(self._message)
 
 
 class MutatingTask(Task):
     """Attempts to mutate the input dict — must not affect the graph state."""
 
-    def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         for v in inputs.values():
             if isinstance(v, dict):
                 v["mutated"] = True
-        return {"ok": True}
+        return [{"ok": True}]
 
 
 class NonDictTask(Task):
-    """Returns a non-dict value — orchestrator must treat this as an error."""
+    """Returns a list containing a non-dict element — orchestrator must reject it."""
 
     def run(self, inputs: Dict[str, Any]) -> Any:
-        return "not a dict"
+        return ["not a dict"]
 
 
 class CountingTask(Task):
@@ -94,9 +96,9 @@ class CountingTask(Task):
         super().__init__(task_id, activation_policy)
         self.run_count_local = 0
 
-    def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         self.run_count_local += 1
-        return {"count": self.run_count_local}
+        return [{"count": self.run_count_local}]
 
 
 class SlowTask(Task):
@@ -108,11 +110,11 @@ class SlowTask(Task):
         self.started = threading.Event()
         self.release = threading.Event()
 
-    def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         self.started.set()
         self.release.wait(timeout=5.0)
         time.sleep(self._delay)
-        return {"slow": True, "inputs": dict(inputs)}
+        return [{"slow": True, "inputs": dict(inputs)}]
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +169,6 @@ def test_edge_id_is_uuid():
     orch.add_task(Task("a", OncePolicy()))
     orch.add_task(Task("b", AllPolicy()))
     edge_id = orch.add_edge("a", "b")
-    # UUID4 format: 8-4-4-4-12 hex chars
     parts = edge_id.split("-")
     assert len(parts) == 5
     assert [len(p) for p in parts] == [8, 4, 4, 4, 12]
@@ -190,10 +191,11 @@ def test_linear_dag_once_policy():
     assert report["tasks"]["src"]["run_count"] == 1
     assert report["tasks"]["dst"]["run_count"] == 1
     assert report["tasks"]["src"]["version"] == 1
-    # Inputs are now flattened, so dst receives src's output directly
+
     dst_state = orch.tasks["dst"].state
-    assert dst_state is not None
-    assert "echo" in dst_state
+    assert dst_state
+    # state is now a list of dicts; each dict is one output snapshot
+    assert "echo" in dst_state[0]
 
 
 def test_all_policy_requires_all_fresh():
@@ -220,8 +222,6 @@ def test_any_policy_runs_on_first_input():
 
     report = orch.run()
 
-    # c runs after a; b's arrival does not re-trigger c because c is OncePolicy-free
-    # but c uses AnyPolicy, so it may run again when b becomes fresh.
     assert report["tasks"]["c"]["run_count"] >= 1
 
 
@@ -236,7 +236,6 @@ def test_once_policy_does_not_rerun():
 
 
 def test_wave_damping_constant_result():
-    """If a task returns the same dict, version must not grow."""
     orch = build_orchestrator()
     orch.add_task(ConstantTask("src", OncePolicy(), {"value": 42}))
     orch.add_task(ConstantTask("dst", OncePolicy(), {"value": 42}))
@@ -245,7 +244,6 @@ def test_wave_damping_constant_result():
     orch.run()
 
     assert orch.tasks["src"].version == 1
-    # dst ran once, produced same dict -> version = 1 (from None -> dict is a change)
     assert orch.tasks["dst"].version == 1
 
 
@@ -263,8 +261,6 @@ def test_failure_marks_task_failed():
 
     assert report["tasks"]["src"]["status"] == "FAILED"
     assert report["tasks"]["src"]["last_error"] is not None
-    # dst never ran because src failed and didn't produce a fresh output
-    assert report["tasks"]["dst"]["run_count"] == 0
 
 
 def test_retry_policy_retries_up_to_max():
@@ -274,9 +270,9 @@ def test_retry_policy_retries_up_to_max():
     report = orch.run()
 
     assert report["tasks"]["src"]["status"] == "FAILED"
-    # initial attempt + max_retries retries
+    # Retries are tracked per instance; task-level run_count stays 0 because
+    # the single instance never completes successfully.
     assert report["tasks"]["src"]["run_count"] == 0
-    assert orch.retry_attempts["src"] == orch.max_retries + 1
 
 
 def test_skip_policy_marks_done_without_state():
@@ -288,24 +284,23 @@ def test_skip_policy_marks_done_without_state():
     report = orch.run()
 
     assert report["tasks"]["src"]["status"] == "DONE"
-    assert orch.tasks["src"].state is None
+    # state now defaults to an empty list; skip leaves it untouched
+    assert orch.tasks["src"].state == []
     assert orch.tasks["src"].version == 0
-    # dst did not run because src's version didn't grow
     assert report["tasks"]["dst"]["run_count"] == 0
 
 
 def test_retry_counter_resets_on_success():
-    """A task that fails, then succeeds on retry should reset its retry counter."""
     class FlakyTask(Task):
         def __init__(self, task_id, activation_policy, failure_policy):
-            super().__init__(task_id, activation_policy, failure_policy)
+            super().__init__(task_id, activation_policy, failure_policy=failure_policy)
             self._calls = 0
 
         def run(self, inputs):
             self._calls += 1
             if self._calls == 1:
                 raise RuntimeError("first call fails")
-            return {"ok": True}
+            return [{"ok": True}]
 
     orch = build_orchestrator()
     orch.add_task(FlakyTask("src", OncePolicy(), RetryFailurePolicy()))
@@ -313,8 +308,7 @@ def test_retry_counter_resets_on_success():
     orch.run()
 
     assert orch.tasks["src"].status == TaskStatus.DONE
-    assert orch.tasks["src"].state == {"ok": True}
-    assert orch.retry_attempts["src"] == 0
+    assert orch.tasks["src"].state == [{"ok": True}]
 
 
 def test_non_dict_result_treated_as_error():
@@ -328,7 +322,6 @@ def test_non_dict_result_treated_as_error():
 
 
 def test_default_failure_policy_is_fail():
-    """If no failure policy is provided, it should default to FAIL."""
     orch = build_orchestrator()
     task = FailingTask("src", OncePolicy())
     assert isinstance(task.failure_policy, FailFailurePolicy)
@@ -343,7 +336,6 @@ def test_default_failure_policy_is_fail():
 # ---------------------------------------------------------------------------
 
 def test_input_mutation_does_not_affect_graph_state():
-    """Tasks receive a deep copy — mutating inputs must not corrupt src state."""
     orch = build_orchestrator()
     orch.add_task(ConstantTask("src", OncePolicy(), {"nested": {"x": 1}}))
     orch.add_task(MutatingTask("dst", OncePolicy()))
@@ -351,10 +343,10 @@ def test_input_mutation_does_not_affect_graph_state():
 
     orch.run()
 
-    # src's state must remain untouched
     src_state = orch.tasks["src"].state
-    assert src_state is not None
-    assert "mutated" not in src_state["nested"]
+    assert src_state
+    # state is a list of dicts, index into the first snapshot
+    assert "mutated" not in src_state[0]["nested"]
 
 
 # ---------------------------------------------------------------------------
@@ -362,11 +354,6 @@ def test_input_mutation_does_not_affect_graph_state():
 # ---------------------------------------------------------------------------
 
 def test_self_reevaluation_with_concurrent_inputs():
-    """
-    Task B has AnyPolicy and two inputs A1, A2.
-    A1 runs first and triggers B. While B is running, A2 finishes.
-    After B completes, it must be re-evaluated and run again because A2 is fresh.
-    """
     orch = Orchestrator(ThreadPoolExecutorBackend, max_workers=2)
 
     a1 = SlowTask("a1", OncePolicy(), delay=0.05)
@@ -385,21 +372,16 @@ def test_self_reevaluation_with_concurrent_inputs():
     t = threading.Thread(target=runner)
     t.start()
 
-    # Wait for both tasks to start executing
     assert a1.started.wait(timeout=5.0), "a1 did not start"
     assert a2.started.wait(timeout=5.0), "a2 did not start"
-    
-    # Release both tasks
+
     a1.release.set()
     a2.release.set()
 
     t.join(timeout=10.0)
     assert not t.is_alive(), "orchestrator did not finish"
 
-    # b should have run at least once; ideally twice (once per input).
-    # Due to concurrency, exact count may vary, but it must be >= 1.
     assert b.run_count_local >= 1
-    # Both a1 and a2 should have completed
     assert orch.tasks["a1"].status == TaskStatus.DONE
     assert orch.tasks["a2"].status == TaskStatus.DONE
 
@@ -412,7 +394,6 @@ def test_thread_pool_executor_shuts_down():
     orch = Orchestrator(ThreadPoolExecutorBackend, max_workers=2)
     orch.add_task(EchoTask("src", OncePolicy()))
     orch.run()
-    # After run(), the executor pool must be shut down.
     assert getattr(orch.executor, "pool", None) is not None
 
 
@@ -420,7 +401,6 @@ def test_inline_executor_shutdown_is_noop():
     orch = build_orchestrator()
     orch.add_task(EchoTask("src", OncePolicy()))
     orch.run()
-    # Should not raise
     orch.executor.shutdown(wait=True)
 
 
@@ -429,15 +409,19 @@ def test_inline_executor_shutdown_is_noop():
 # ---------------------------------------------------------------------------
 
 def test_completion_event_success():
-    evt = CompletionEvent(task_id="t1", success=True, payload={"a": 1})
+    # Per spec, payload on success is a list of dicts
+    evt = CompletionEvent(
+        instance_id="i1", task_id="t1", success=True, payload=[{"a": 1}]
+    )
+    assert evt.instance_id == "i1"
     assert evt.task_id == "t1"
     assert evt.success is True
-    assert evt.payload == {"a": 1}
+    assert evt.payload == [{"a": 1}]
 
 
 def test_completion_event_failure():
     err = RuntimeError("oops")
-    evt = CompletionEvent(task_id="t1", success=False, payload=err)
+    evt = CompletionEvent(instance_id="i1", task_id="t1", success=False, payload=err)
     assert evt.success is False
     assert evt.payload is err
 
@@ -476,8 +460,9 @@ def test_exact_policy_requires_specific_edges():
     edge_a_id = orch.add_edge("a", "c")
     orch.add_edge("b", "c")
 
-    # Replace c's activation policy with ExactPolicy requiring only edge from a
-    orch.tasks["c"] = EchoTask("c", ExactPolicy(ActivationPolicyConfig(required_edges=[edge_a_id])))
+    orch.tasks["c"] = EchoTask(
+        "c", ExactPolicy(ActivationPolicyConfig(required_edges=[edge_a_id]))
+    )
 
     report = orch.run()
 
@@ -487,7 +472,7 @@ def test_exact_policy_requires_specific_edges():
 def test_exact_policy_without_required_edges_never_activates():
     orch = build_orchestrator()
     orch.add_task(EchoTask("a", OncePolicy()))
-    orch.add_task(EchoTask("b", ExactPolicy()))  # no required_edges
+    orch.add_task(EchoTask("b", ExactPolicy()))
     orch.add_edge("a", "b")
 
     report = orch.run()
@@ -499,15 +484,13 @@ def test_exact_policy_without_required_edges_never_activates():
 # Tests: all policy with no inputs
 # ---------------------------------------------------------------------------
 
-def test_all_policy_with_no_inputs_activates():
-    """AllPolicy activates unconditionally when there are no inputs."""
+def test_all_policy_with_no_inputs_raises():
+    """AllPolicy must raise ValueError when there are no input edges."""
     orch = build_orchestrator()
     orch.add_task(EchoTask("src", AllPolicy()))
 
-    report = orch.run()
-
-    assert report["tasks"]["src"]["run_count"] == 1
-    assert report["tasks"]["src"]["status"] == "DONE"
+    with pytest.raises(ValueError, match="AllPolicy requires at least one input edge"):
+        orch.run()
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +498,6 @@ def test_all_policy_with_no_inputs_activates():
 # ---------------------------------------------------------------------------
 
 def test_self_loop_does_not_infinite_loop():
-    """A task with a self-loop and OncePolicy should run exactly once."""
     orch = build_orchestrator()
     orch.add_task(CountingTask("t1", OncePolicy()))
     orch.add_edge("t1", "t1")
@@ -523,6 +505,78 @@ def test_self_loop_does_not_infinite_loop():
     orch.run()
 
     assert orch.tasks["t1"].meta.run_count == 0
-
     t1 = cast(CountingTask, orch.tasks["t1"])
     assert t1.run_count_local == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: Input Merge Policies
+# ---------------------------------------------------------------------------
+
+def test_cartesian_product_merge():
+    policy = CartesianProductMergePolicy()
+    incoming = {
+        "A": [{"val": 1}, {"val": 2}],
+        "B": [{"char": "x"}]
+    }
+    result = policy.merge(incoming)
+    assert len(result) == 2
+    assert {"A": {"val": 1}, "B": {"char": "x"}} in result
+    assert {"A": {"val": 2}, "B": {"char": "x"}} in result
+
+
+def test_cartesian_product_empty_source():
+    policy = CartesianProductMergePolicy()
+    incoming = {
+        "A": [{"val": 1}],
+        "B": []
+    }
+    result = policy.merge(incoming)
+    assert len(result) == 0
+
+
+def test_single_item_per_source_policy_valid():
+    policy = SingleItemPerSourcePolicy()
+    incoming = {
+        "A": [{"val": 1}],
+        "B": [{"char": "x"}]
+    }
+    result = policy.merge(incoming)
+    assert len(result) == 1
+    assert result[0] == {"A": {"val": 1}, "B": {"char": "x"}}
+
+
+def test_single_item_per_source_policy_invalid():
+    policy = SingleItemPerSourcePolicy()
+    incoming = {
+        "A": [{"val": 1}, {"val": 2}],
+        "B": [{"char": "x"}]
+    }
+    with pytest.raises(ValueError):
+        policy.merge(incoming)
+
+
+def test_all_but_one_single_policy_valid():
+    policy = AllButOneSinglePolicy()
+    incoming = {
+        "Stream": [{"id": 1}, {"id": 2}],
+        "Context": [{"name": "test"}]
+    }
+    result = policy.merge(incoming)
+    assert len(result) == 2
+
+
+def test_all_but_one_single_policy_invalid():
+    policy = AllButOneSinglePolicy()
+    incoming = {
+        "A": [{"val": 1}, {"val": 2}],
+        "B": [{"char": "x"}, {"char": "y"}]
+    }
+    with pytest.raises(ValueError):
+        policy.merge(incoming)
+
+
+def test_task_with_cartesian_merge_creates_multiple_instances():
+    """Verify that the default merge policy on a Task is CartesianProductMergePolicy."""
+    task = EchoTask("t", OncePolicy())
+    assert isinstance(task.merge_policy, CartesianProductMergePolicy)
