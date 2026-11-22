@@ -42,7 +42,7 @@ class Orchestrator:
         # Configuration
         self.max_retries = 3
         self.failed = False
- 
+
         logger.debug("Orchestrator initialized with %d tasks, %d edges", len(self.tasks), len(self.edges))
 
     def add_task(self, task: Task) -> None:
@@ -107,6 +107,18 @@ class Orchestrator:
             if self.tasks[task_id].activation_policy.should_activate(ctx):
                 pass  # _dispatch_wave will handle the actual gathering and submission
 
+    def _extract_groups(self, state: List[Dict[str, Any]]) -> Optional[List[str]]:
+        """
+        Extract the list of groups from the source task's state if present.
+        Returns None if no __groups key is found in any dict.
+        """
+        for item in state:
+            if isinstance(item, dict) and '__groups' in item:
+                groups_val = item['__groups']
+                if isinstance(groups_val, list):
+                    return groups_val
+        return None
+
     def _build_policy_context(self, task_id: TaskId, trigger: TriggerType) -> PolicyContext:
         """Constructs an immutable PolicyContext for a given task."""
         task = self.tasks[task_id]
@@ -116,6 +128,15 @@ class Orchestrator:
             edge = self.edges[edge_id]
             src_task = self.tasks[edge.src]
             is_fresh = src_task.version > edge.consumed_version
+
+            # Apply groups-based filtering for freshness
+            if is_fresh and edge.groups:
+                src_groups = self._extract_groups(src_task.state)
+                if src_groups is not None:
+                    # Intersection required
+                    if not set(edge.groups) & set(src_groups):
+                        is_fresh = False
+
             fresh[edge_id] = is_fresh
 
         status_map = {
@@ -161,6 +182,14 @@ class Orchestrator:
                 src_task = self.tasks[edge.src]
 
                 if src_task.version > edge.consumed_version and src_task.state:
+                    # Apply groups-based filtering for incoming data
+                    if edge.groups:
+                        src_groups = self._extract_groups(src_task.state)
+                        if src_groups is not None:
+                            if not set(edge.groups) & set(src_groups):
+                                # No intersection, skip this edge's data
+                                continue
+
                     key = (edge.src, src_task.version)
                     if key not in added_src_versions:
                         # Apply field aliases before merge, per spec
@@ -336,6 +365,7 @@ class Orchestrator:
                 "src": edge.src,
                 "dst": edge.dst,
                 "consumed_version": edge.consumed_version,
-                "aliases": edge.aliases
+                "aliases": edge.aliases,
+                "groups": edge.groups
             }
         return report

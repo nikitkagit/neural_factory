@@ -119,6 +119,28 @@ class SlowTask(Task):
 
 
 # ---------------------------------------------------------------------------
+# New test tasks for groups feature
+# ---------------------------------------------------------------------------
+
+class GroupsTask(Task):
+    """Returns a state containing __groups with the given list of group names."""
+
+    def __init__(self, task_id: TaskId, activation_policy: ActivationPolicy, groups: List[str]):
+        super().__init__(task_id, activation_policy)
+        self._groups = groups
+
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return [{"__groups": self._groups, "data": "ok"}]
+
+
+class NoGroupsTask(Task):
+    """Returns a state without __groups field."""
+
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return [{"data": "no_groups"}]
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -582,3 +604,91 @@ def test_flatten_merge_policy_empty():
     incoming = {}
     result = policy.merge(incoming)
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: Edge groups feature
+# ---------------------------------------------------------------------------
+
+def test_edge_groups_empty_list_activates_normally():
+    """Empty groups list on edge means no restriction, dst should run."""
+    orch = build_orchestrator()
+    src = GroupsTask("src", OncePolicy(), groups=["group_a"])
+    dst = EchoTask("dst", OncePolicy())
+    orch.add_task(src)
+    orch.add_task(dst)
+    edge_id = orch.add_edge("src", "dst")
+    # Set empty groups list manually
+    orch.edges[edge_id].groups = []
+
+    report = orch.run()
+
+    assert report["tasks"]["src"]["status"] == "DONE"
+    assert report["tasks"]["dst"]["status"] == "DONE"
+    assert report["tasks"]["dst"]["run_count"] == 1
+
+
+def test_edge_groups_with_matching_groups_activates():
+    """Matching groups between source state and edge should allow activation."""
+    orch = build_orchestrator()
+    src = GroupsTask("src", OncePolicy(), groups=["group_a"])
+    dst = EchoTask("dst", OncePolicy())
+    orch.add_task(src)
+    orch.add_task(dst)
+    edge_id = orch.add_edge("src", "dst")
+    orch.edges[edge_id].groups = ["group_a"]
+
+    report = orch.run()
+
+    assert report["tasks"]["dst"]["status"] == "DONE"
+    assert report["tasks"]["dst"]["run_count"] == 1
+
+
+def test_edge_groups_without_groups_in_source_activates():
+    """Source without __groups should activate edge regardless of edge groups."""
+    orch = build_orchestrator()
+    src = NoGroupsTask("src", OncePolicy())
+    dst = EchoTask("dst", OncePolicy())
+    orch.add_task(src)
+    orch.add_task(dst)
+    edge_id = orch.add_edge("src", "dst")
+    orch.edges[edge_id].groups = ["group_a"]
+
+    report = orch.run()
+
+    assert report["tasks"]["dst"]["status"] == "DONE"
+    assert report["tasks"]["dst"]["run_count"] == 1
+
+
+def test_edge_groups_with_no_intersection_does_not_activate():
+    """No intersection between source groups and edge groups should prevent activation."""
+    orch = build_orchestrator()
+    src = GroupsTask("src", OncePolicy(), groups=["group_a"])
+    dst = EchoTask("dst", OncePolicy())
+    orch.add_task(src)
+    orch.add_task(dst)
+    edge_id = orch.add_edge("src", "dst")
+    orch.edges[edge_id].groups = ["group_b"]
+
+    report = orch.run()
+
+    assert report["tasks"]["dst"]["status"] == "IDLE"  # never ran
+    assert report["tasks"]["dst"]["run_count"] == 0
+
+
+def test_groups_field_preserved_in_task_state():
+    """After execution, source task state should contain __groups field."""
+    orch = build_orchestrator()
+    src = GroupsTask("src", OncePolicy(), groups=["group_a"])
+    dst = EchoTask("dst", OncePolicy())
+    orch.add_task(src)
+    orch.add_task(dst)
+    edge_id = orch.add_edge("src", "dst")
+    orch.edges[edge_id].groups = ["group_a"]
+
+    orch.run()
+
+    src_state = orch.tasks["src"].state
+    assert len(src_state) == 1
+    assert "__groups" in src_state[0]
+    assert src_state[0]["__groups"] == ["group_a"]

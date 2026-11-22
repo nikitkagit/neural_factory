@@ -1,8 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, List
 
 from .types import TaskId, EdgeId
-
 
 
 @dataclass
@@ -10,21 +9,24 @@ class Edge:
     """
     Represents a delivery channel from the output of one task to the input of another.
     Maintained and updated exclusively by the orchestrator.
-    
+
     Invariants:
     - The orchestrator is the sole writer to this object.
     - aliases maps source field names to destination field names.
     """
-    
+
     edge_id: EdgeId
     src: TaskId
     dst: TaskId
-    
+
     # The version of the src state that was consumed by dst during its last run
     consumed_version: int = 0
-    
+
     # Field name remapping: {src_field_name: dst_field_name}
     aliases: Dict[str, str] = field(default_factory=dict)
+
+    # Groups required for activation; empty list means no restriction
+    groups: List[str] = field(default_factory=list)
 
     def mark_consumed(self, version: int) -> None:
         """
