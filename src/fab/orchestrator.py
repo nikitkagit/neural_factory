@@ -58,7 +58,8 @@ class Orchestrator:
         self,
         src_id: TaskId,
         dst_id: TaskId,
-        aliases: Optional[Dict[str, str]] = None
+        aliases: Optional[Dict[str, str]] = None,
+        groups: Optional[List[str]] = None
     ) -> EdgeId:
         """Add an edge to the graph. Validates existence of endpoints and uniqueness."""
         if src_id not in self.tasks:
@@ -70,11 +71,17 @@ class Orchestrator:
         if edge_id in self.edges:
             raise ValueError(f"Edge {edge_id} already exists")
 
-        edge = Edge(edge_id=edge_id, src=src_id, dst=dst_id, aliases=aliases or {})
+        edge = Edge(
+            edge_id=edge_id,
+            src=src_id,
+            dst=dst_id,
+            aliases=aliases or {},
+            groups=groups or []
+        )
         self.edges[edge_id] = edge
         self.out_edges[src_id].append(edge_id)
         self.in_edges[dst_id].append(edge_id)
-        logger.debug("Edge %s added: %s -> %s", edge_id, src_id, dst_id)
+        logger.debug("Edge %s added: %s -> %s (groups=%s)", edge_id, src_id, dst_id, edge.groups)
         return edge_id
 
     def run(self) -> Dict[str, Any]:
