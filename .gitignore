@@ -1,8 +1,6 @@
 *.txt
-!раблист.txt
 
 **/output/
-**/tasks/
 
 uv.lock
 
@@ -228,6 +226,5 @@ __marimo__/
 .streamlit/secrets.toml
 
 out/
-tasks/
 __pycache__/
 .venv/
