@@ -115,7 +115,7 @@ GEN_SPEC_FOR_TESTS = Prompt(
     Generate a specification for tests by the given specification in Russian.
     The specification MUST have a strict structure with these sections:
     ## Цель [The short overall goal of the changes.]
-    ## Необходимые файлы [which contain the information necessary for implementation. here you only need to provide a list of files in the format without - symbol before it: path/to/file.code.]
+    ## Необходимые файлы [which contain the information necessary for implementation. here you only need to provide a list of files in the format WITHOUT MINUS '-' symbol before it: path/to/file.code.]
     ## Изменяемые файлы [which will need to be edited. Similar format.]
     ## Изменения
     ### <file path>:
