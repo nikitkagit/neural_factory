@@ -1,0 +1,235 @@
+"""
+Example pipeline: specification file + file list -> read code -> read spec -> write test spec -> save to file.
+
+Usage:
+    python -m examples.test_spec_writer_task.main <spec_file> [directories/files...]
+
+Graph:
+  ConstantTask (directories, files)
+    ├── directories/files ──► ReadCodeFilesTask ──► code ──► TestSpecWriterTask ──► WriteToFileTask
+    └── filepath ──► ReadFileTask ──► specification ──► TestSpecWriterTask
+
+Arguments:
+    First argument: path to the specification file (required).
+    Remaining arguments: directories and files to scan for code (optional).
+"""
+
+import sys
+import os
+import logging
+
+# Ensure the project root is on sys.path so imports work
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from src.fab.orchestrator import Orchestrator
+from src.fab.executor import InlineExecutor
+from src.fab.policy import OncePolicy, AllPolicy, CartesianProductMergePolicy
+from src.tasks.base_tasks import ConstantTask, ReadCodeFilesTask, WriteToFileTask, ReadFileTask
+from src.tasks.ai_tasks import TestSpecWriterTask
+from src.config import config
+
+
+def setup_logging() -> None:
+    """Configures logging based on the debug flag in config."""
+    log_level = logging.DEBUG if config.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    )
+
+
+def main():
+    setup_logging()
+
+    # ------------------------------------------------------------------
+    # 1. Parse command-line arguments
+    # ------------------------------------------------------------------
+    if len(sys.argv) < 2:
+        print("Error: Missing specification file path.")
+        print("Usage: python -m examples.test_spec_writer_task.main <spec_file> [directories/files...]")
+        sys.exit(1)
+
+    spec_filepath = sys.argv[1]
+
+    if not os.path.exists(spec_filepath):
+        print(f"Error: Specification file '{spec_filepath}' does not exist.")
+        sys.exit(1)
+
+    if os.path.getsize(spec_filepath) == 0:
+        print(f"Error: Specification file '{spec_filepath}' is empty.")
+        sys.exit(1)
+
+    directories_to_scan = []
+    files_to_scan = []
+
+    for arg in sys.argv[2:]:
+        if "." in arg:
+            files_to_scan.append(arg)
+        else:
+            directories_to_scan.append(arg)
+
+    # ------------------------------------------------------------------
+    # 2. Create the orchestrator (inline executor for simplicity)
+    # ------------------------------------------------------------------
+    orchestrator = Orchestrator(executor_cls=InlineExecutor)
+
+    # ------------------------------------------------------------------
+    # 3. Create tasks
+    # ------------------------------------------------------------------
+    constant_task = ConstantTask(
+        task_id="user_input",
+        output=[
+            {
+                "directories": directories_to_scan,
+                "files": files_to_scan,
+            }
+        ],
+        activation_policy=OncePolicy(),
+    )
+
+    read_code_task = ReadCodeFilesTask(
+        task_id="read_code",
+        activation_policy=OncePolicy(),
+    )
+
+    read_spec_task = ReadFileTask(
+        task_id="read_spec",
+        activation_policy=OncePolicy(),
+    )
+
+    test_spec_writer_task = TestSpecWriterTask(
+        task_id="write_test_spec",
+        activation_policy=AllPolicy(),          # needs both inputs fresh
+        merge_policy=CartesianProductMergePolicy(),
+    )
+
+    write_task = WriteToFileTask(
+        task_id="save_spec",
+        activation_policy=OncePolicy(),
+    )
+
+    # ------------------------------------------------------------------
+    # 4. Register tasks in the graph
+    # ------------------------------------------------------------------
+    orchestrator.add_task(constant_task)
+    orchestrator.add_task(read_code_task)
+    orchestrator.add_task(read_spec_task)
+    orchestrator.add_task(test_spec_writer_task)
+    orchestrator.add_task(write_task)
+
+    # ------------------------------------------------------------------
+    # 5. Connect edges
+    #
+    #   constant_task ──directories/files────► read_code_task
+    #   constant_task ──filepath─────────────► read_spec_task
+    #   read_code_task ──code────────────────► test_spec_writer_task
+    #   read_spec_task ──specification───────► test_spec_writer_task
+    #   test_spec_writer_task ──specification─► write_task
+    # ------------------------------------------------------------------
+    # Edge 1: user_input -> read_code  (pass directories and files)
+    orchestrator.add_edge(
+        src_id="user_input",
+        dst_id="read_code",
+        aliases={
+            "directories": "directories",
+            "files": "files",
+        },
+    )
+
+    # Edge 2: user_input -> read_spec  (pass the spec file path)
+    orchestrator.add_edge(
+        src_id="user_input",
+        dst_id="read_spec",
+        aliases={
+            "filepath": "filepath",  # ConstantTask doesn't have filepath, we'll inject it separately
+        },
+    )
+
+    # Edge 3: read_code -> test_spec_writer  (pass the code)
+    orchestrator.add_edge(
+        src_id="read_code",
+        dst_id="write_test_spec",
+        aliases={
+            "code": "code",
+        },
+    )
+
+    # Edge 4: read_spec -> test_spec_writer  (pass the specification)
+    orchestrator.add_edge(
+        src_id="read_spec",
+        dst_id="write_test_spec",
+        aliases={
+            "content": "specification",
+        },
+    )
+
+    # Edge 5: test_spec_writer -> save_spec  (pass the specification)
+    orchestrator.add_edge(
+        src_id="write_test_spec",
+        dst_id="save_spec",
+        aliases={
+            "specification": "input",       # WriteToFileTask expects 'input'
+        },
+    )
+
+    # ------------------------------------------------------------------
+    # 6. Inject the spec file path and output path via constant tasks
+    # ------------------------------------------------------------------
+    # Provide the spec file path to read_spec
+    spec_path_task = ConstantTask(
+        task_id="spec_path",
+        output=[{"filepath": spec_filepath}],
+        activation_policy=OncePolicy(),
+    )
+    orchestrator.add_task(spec_path_task)
+
+    orchestrator.add_edge(
+        src_id="spec_path",
+        dst_id="read_spec",
+        aliases={
+            "filepath": "filepath",
+        },
+    )
+
+    # Provide the output file path to save_spec
+    output_path_task = ConstantTask(
+        task_id="output_path",
+        output=[{"filepath": "output/test_spec.md"}],
+        activation_policy=OncePolicy(),
+    )
+    orchestrator.add_task(output_path_task)
+
+    orchestrator.add_edge(
+        src_id="output_path",
+        dst_id="save_spec",
+        aliases={
+            "filepath": "filepath",
+        },
+    )
+
+    # ------------------------------------------------------------------
+    # 7. Run the pipeline
+    # ------------------------------------------------------------------
+    print("Starting pipeline...")
+    report = orchestrator.run()
+
+    # ------------------------------------------------------------------
+    # 8. Print summary
+    # ------------------------------------------------------------------
+    print("\n=== Pipeline finished ===")
+    for tid, info in report["tasks"].items():
+        print(f"  {tid}: status={info['status']}, version={info['version']}, "
+              f"run_count={info['run_count']}, error={info['last_error']}")
+
+    # Check if the output file was created
+    output_path = "output/test_spec.md"
+    if os.path.exists(output_path):
+        print(f"\nTest specification written to {output_path}")
+        with open(output_path, "r", encoding="utf-8") as f:
+            print(f"\n--- First 500 characters ---\n{f.read()[:500]}")
+    else:
+        print("\nOutput file was not created — check for errors above.")
+
+
+if __name__ == "__main__":
+    main()

@@ -110,6 +110,22 @@ GEN_SPEC = Prompt(
     """,
     priority=100
 )
+GEN_SPEC_FOR_TESTS = Prompt(
+    """
+    Generate a specification for tests by the given specification in Russian.
+    The specification MUST have a strict structure with these sections:
+    ## Цель [The short overall goal of the changes.]
+    ## Необходимые файлы [which contain the information necessary for implementation. here you only need to provide a list of files in the format without - symbol before it: path/to/file.code.]
+    ## Изменяемые файлы [which will need to be edited. Similar format.]
+    ## Изменения
+    ### <file path>:
+        <list of changes>
+    No general reasoning. Always include exact method/class names.
+    """,
+    priority=100
+)
+
+
 PATHS_RELATIVE_TO_ROOT = Prompt(
     "All file paths provided or requested are strictly relative to the project root directory.",
     priority=100
@@ -122,3 +138,6 @@ def make_request_prompt(request: str, priority: int = 500) -> Prompt:
 
 def make_code_prompt(code: str, priority: int = 1000) -> Prompt:
     return Prompt(f"Some code of the project: {code}", priority=priority)
+
+def make_specification_prompt(spec: str, priority: int = 1000) -> Prompt:
+    return Prompt(f"Main specification: {spec}", priority=priority)

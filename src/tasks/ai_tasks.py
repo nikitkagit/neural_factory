@@ -2,8 +2,8 @@ from typing import Any, Dict, List, Optional
 
 from src.fab.task import Task, TaskId
 from src.prompt import (
-    Prompt, make_request_prompt, make_code_prompt,
-    GEN_SPEC, NO_CODE
+    Prompt, make_request_prompt, make_code_prompt, make_specification_prompt,
+    GEN_SPEC, NO_CODE, GEN_SPEC_FOR_TESTS
 )
 from src.fab.policy import (
     ActivationPolicy, OncePolicy, 
@@ -96,3 +96,41 @@ class SpecWriterTask(Task):
             "code": code,
             "request": request
         }]
+
+class TestSpecWriterTask(Task):
+    def __init__(
+        self,
+        task_id: TaskId,
+        activation_policy: ActivationPolicy = OncePolicy(),
+        merge_policy: Optional[InputMergePolicy] = None,
+        failure_policy: Optional[FailurePolicy] = None,
+    ):
+        super().__init__(task_id, activation_policy, merge_policy, failure_policy)
+
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+        specification = inputs.get("specification")
+        code = inputs.get("code")
+
+        if specification is None or code is None:
+            raise ValueError("Both 'specification' and 'code' must be provided in inputs.")
+
+        if not isinstance(specification, str) or not isinstance(code, str):
+            raise ValueError("Both 'specification' and 'code' must be strings.")
+
+        combined = GEN_SPEC_FOR_TESTS + make_code_prompt(code) + make_specification_prompt(specification)
+
+        messages = [
+            {"role": "user", "content": str(combined)}
+        ]
+
+        payload = {
+            "model": "deepseek/deepseek-v4-flash",
+            "messages": messages,
+            "reasoning": {"effort": "none"},
+            "max_tokens": 4999,
+            "temperature": 0.03
+            }
+
+        response_text = call_ai(payload)
+
+        return [{"specification": response_text, "code": code, "specification_input": specification}]
