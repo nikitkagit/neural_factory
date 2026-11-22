@@ -86,6 +86,7 @@ class SpecWriterTask(Task):
             "messages": messages,
             "reasoning": {"effort": "none"},
             "max_tokens": 4999,
+            "temperature": 0.03
             }
         
         response_text = call_ai(payload)
