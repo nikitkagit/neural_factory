@@ -120,7 +120,7 @@ GEN_SPEC_FOR_TESTS = Prompt(
     ## Изменения
     ### <file path>:
         <list of changes>
-    No general reasoning. Always include exact method/class names.
+    No general reasoning. Always include exact method/class names. You mustn't use minus '-' before filepaths.
     """,
     priority=100
 )
