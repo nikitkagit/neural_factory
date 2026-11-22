@@ -4,7 +4,7 @@ import os
 
 from src.config import config
 from src.prompt import Prompt, SHORT, CODE_ONLY, PATHS_RELATIVE_TO_ROOT, make_context_prompt
-from src.ai_client import call_ai
+from src.utils import call_ai
 
 
 def setup_logging() -> None:

@@ -1,9 +1,10 @@
+import re
 import os
 import json
 import tempfile
 import subprocess
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from .config import config
 
@@ -68,3 +69,69 @@ def call_ai(payload: Dict[str, Any]) -> str:
         if os.path.exists(payload_file):
             os.remove(payload_file)
             logger.debug(f"Temporary file {payload_file} deleted.")
+
+
+def recalculate_diff_headers(diff_text: str) -> str:
+    """
+    Recalculates hunk headers (@@ -X,Y +X,Y @@) in a unified diff string.
+
+    Useful when an LLM generates a diff with incorrect line counts.
+    Preserves original start line numbers and recomputes only the counts.
+
+    :param diff_text: The raw unified diff as a single string.
+    :return: The diff with corrected hunk headers.
+    """
+    lines = diff_text.splitlines(keepends=True)
+    result: List[str] = []
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # Detect hunk header — match only the @@ ... @@ part
+        match = re.match(r"^(@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@)(.*)", line)
+        if not match:
+            result.append(line)
+            i += 1
+            continue
+
+        header_part = match.group(1)
+        old_start = int(match.group(2))
+        new_start = int(match.group(4))
+        suffix = match.group(6) or ""
+
+        # Collect hunk body lines (until next @@ or end of file)
+        hunk_body: List[str] = []
+        j = i + 1
+        while j < len(lines):
+            next_line = lines[j]
+            if next_line.startswith("@@ ") or next_line.startswith("diff "):
+                break
+            hunk_body.append(next_line)
+            j += 1
+
+        # Count lines in old and new versions
+        old_count = 0
+        new_count = 0
+        for body_line in hunk_body:
+            stripped = body_line.rstrip("\n").rstrip("\r")
+            if stripped.startswith("\\"):
+                continue
+            if stripped.startswith("-"):
+                old_count += 1
+            elif stripped.startswith("+"):
+                new_count += 1
+            elif stripped.startswith(" "):
+                old_count += 1
+                new_count += 1
+            # Empty lines inside a hunk — skip, they are not valid diff lines
+            # and should not affect counts
+
+        # Rebuild header preserving the suffix (e.g., class name)
+        new_header = f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{suffix}\n"
+        result.append(new_header)
+        result.extend(hunk_body)
+
+        i = j
+
+    return "".join(result)
