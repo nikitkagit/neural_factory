@@ -98,6 +98,15 @@ class SpecWriterTask(Task):
         }]
 
 class TestSpecWriterTask(Task):
+    """
+    Writes a test specification.
+    Accepts either 'specification' (str) or 'request' (str) in inputs.
+    If 'specification' is provided, it is used directly (current behavior).
+    If 'request' is provided (and no 'specification'), the prompt is formed
+    as in SpecWriterTask: GEN_SPEC_FOR_TESTS + NO_CODE + make_code_prompt(code) + make_request_prompt(request).
+    If both are provided, 'specification' takes priority.
+    """
+
     def __init__(
         self,
         task_id: TaskId,
@@ -109,15 +118,21 @@ class TestSpecWriterTask(Task):
 
     def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         specification = inputs.get("specification")
+        request = inputs.get("request")
         code = inputs.get("code")
 
-        if specification is None or code is None:
-            raise ValueError("Both 'specification' and 'code' must be provided in inputs.")
+        if code is None or not isinstance(code, str):
+            raise ValueError("Input must contain 'code' (str).")
 
-        if not isinstance(specification, str) or not isinstance(code, str):
-            raise ValueError("Both 'specification' and 'code' must be strings.")
-
-        combined = GEN_SPEC_FOR_TESTS + make_code_prompt(code) + make_specification_prompt(specification)
+        # Priority: specification > request
+        if specification is not None and isinstance(specification, str):
+            # Use specification directly (current behavior)
+            combined = GEN_SPEC_FOR_TESTS + NO_CODE + make_code_prompt(code) + make_specification_prompt(specification)
+        elif request is not None and isinstance(request, str):
+            # Form prompt as in SpecWriterTask
+            combined = GEN_SPEC_FOR_TESTS + NO_CODE + make_code_prompt(code) + make_request_prompt(request)
+        else:
+            raise ValueError("Either 'specification' or 'request' must be provided in inputs.")
 
         messages = [
             {"role": "user", "content": str(combined)}
@@ -133,4 +148,13 @@ class TestSpecWriterTask(Task):
 
         response_text = call_ai(payload)
 
-        return [{"specification": response_text, "code": code, "specification_input": specification}]
+        result = {
+            "specification": response_text,
+            "code": code,
+        }
+        if request is not None:
+            result["request"] = request
+        if specification is not None:
+            result["specification_input"] = specification
+
+        return [result]

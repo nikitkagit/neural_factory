@@ -1,22 +1,26 @@
 """
 Example pipeline: specification file + file list -> read code -> read spec -> write test spec -> save to file.
+Or: user request + file list -> read code -> write test spec -> save to file (when --spec is not provided).
 
 Usage:
-    python -m examples.test_spec_writer_task.main <spec_file> [directories/files...]
+    python -m examples.test_spec_writer_task.main --spec <spec_file> [directories/files...]
+    python -m examples.test_spec_writer_task.main [directories/files...]
 
-Graph:
+Graph (with --spec):
   ConstantTask (directories, files)
     ├── directories/files ──► ReadCodeFilesTask ──► code ──► TestSpecWriterTask ──► WriteToFileTask
     └── filepath ──► ReadFileTask ──► specification ──► TestSpecWriterTask
 
-Arguments:
-    First argument: path to the specification file (required).
-    Remaining arguments: directories and files to scan for code (optional).
+Graph (without --spec):
+  ConstantTask (directories, files)
+    ├── directories/files ──► ReadCodeFilesTask ──► code ──► TestSpecWriterTask ──► WriteToFileTask
+    └── user request (via ConstantTask) ──► request ──► TestSpecWriterTask
 """
 
 import sys
 import os
 import logging
+import argparse
 
 # Ensure the project root is on sys.path so imports work
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -44,25 +48,27 @@ def main():
     # ------------------------------------------------------------------
     # 1. Parse command-line arguments
     # ------------------------------------------------------------------
-    if len(sys.argv) < 2:
-        print("Error: Missing specification file path.")
-        print("Usage: python -m examples.test_spec_writer_task.main <spec_file> [directories/files...]")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Generate test specifications from a specification file or a user request."
+    )
+    parser.add_argument(
+        "--spec", "-s",
+        type=str,
+        default=None,
+        help="Path to the specification file (optional). If not provided, a user request is prompted."
+    )
+    parser.add_argument(
+        "paths",
+        nargs="*",
+        help="Directories and files to scan for code (optional)."
+    )
+    args = parser.parse_args()
 
-    spec_filepath = sys.argv[1]
-
-    if not os.path.exists(spec_filepath):
-        print(f"Error: Specification file '{spec_filepath}' does not exist.")
-        sys.exit(1)
-
-    if os.path.getsize(spec_filepath) == 0:
-        print(f"Error: Specification file '{spec_filepath}' is empty.")
-        sys.exit(1)
-
+    spec_filepath = args.spec
     directories_to_scan = []
     files_to_scan = []
 
-    for arg in sys.argv[2:]:
+    for arg in args.paths:
         if "." in arg:
             files_to_scan.append(arg)
         else:
@@ -92,11 +98,6 @@ def main():
         activation_policy=OncePolicy(),
     )
 
-    read_spec_task = ReadFileTask(
-        task_id="read_spec",
-        activation_policy=OncePolicy(),
-    )
-
     test_spec_writer_task = TestSpecWriterTask(
         task_id="write_test_spec",
         activation_policy=AllPolicy(),          # needs both inputs fresh
@@ -108,23 +109,14 @@ def main():
         activation_policy=OncePolicy(),
     )
 
-    # ------------------------------------------------------------------
-    # 4. Register tasks in the graph
-    # ------------------------------------------------------------------
+    # Register common tasks
     orchestrator.add_task(constant_task)
     orchestrator.add_task(read_code_task)
-    orchestrator.add_task(read_spec_task)
     orchestrator.add_task(test_spec_writer_task)
     orchestrator.add_task(write_task)
 
     # ------------------------------------------------------------------
-    # 5. Connect edges
-    #
-    #   constant_task ──directories/files────► read_code_task
-    #   constant_task ──filepath─────────────► read_spec_task
-    #   read_code_task ──code────────────────► test_spec_writer_task
-    #   read_spec_task ──specification───────► test_spec_writer_task
-    #   test_spec_writer_task ──specification─► write_task
+    # 4. Connect common edges
     # ------------------------------------------------------------------
     # Edge 1: user_input -> read_code  (pass directories and files)
     orchestrator.add_edge(
@@ -136,16 +128,7 @@ def main():
         },
     )
 
-    # Edge 2: user_input -> read_spec  (pass the spec file path)
-    orchestrator.add_edge(
-        src_id="user_input",
-        dst_id="read_spec",
-        aliases={
-            "filepath": "filepath",  # ConstantTask doesn't have filepath, we'll inject it separately
-        },
-    )
-
-    # Edge 3: read_code -> test_spec_writer  (pass the code)
+    # Edge 2: read_code -> test_spec_writer  (pass the code)
     orchestrator.add_edge(
         src_id="read_code",
         dst_id="write_test_spec",
@@ -154,16 +137,7 @@ def main():
         },
     )
 
-    # Edge 4: read_spec -> test_spec_writer  (pass the specification)
-    orchestrator.add_edge(
-        src_id="read_spec",
-        dst_id="write_test_spec",
-        aliases={
-            "content": "specification",
-        },
-    )
-
-    # Edge 5: test_spec_writer -> save_spec  (pass the specification)
+    # Edge 3: test_spec_writer -> save_spec  (pass the specification)
     orchestrator.add_edge(
         src_id="write_test_spec",
         dst_id="save_spec",
@@ -173,25 +147,81 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # 6. Inject the spec file path and output path via constant tasks
+    # 5. Conditional logic: with --spec or without
     # ------------------------------------------------------------------
-    # Provide the spec file path to read_spec
-    spec_path_task = ConstantTask(
-        task_id="spec_path",
-        output=[{"filepath": spec_filepath}],
-        activation_policy=OncePolicy(),
-    )
-    orchestrator.add_task(spec_path_task)
+    if spec_filepath is not None:
+        # --- With --spec: read specification from file ---
+        if not os.path.exists(spec_filepath):
+            print(f"Error: Specification file '{spec_filepath}' does not exist.")
+            sys.exit(1)
 
-    orchestrator.add_edge(
-        src_id="spec_path",
-        dst_id="read_spec",
-        aliases={
-            "filepath": "filepath",
-        },
-    )
+        if os.path.getsize(spec_filepath) == 0:
+            print(f"Error: Specification file '{spec_filepath}' is empty.")
+            sys.exit(1)
 
-    # Provide the output file path to save_spec
+        read_spec_task = ReadFileTask(
+            task_id="read_spec",
+            activation_policy=OncePolicy(),
+        )
+        orchestrator.add_task(read_spec_task)
+
+        # Edge: user_input -> read_spec (pass the spec file path)
+        orchestrator.add_edge(
+            src_id="user_input",
+            dst_id="read_spec",
+            aliases={
+                "filepath": "filepath",  # will be overridden by spec_path
+            },
+        )
+
+        # Edge: read_spec -> test_spec_writer (pass the specification)
+        orchestrator.add_edge(
+            src_id="read_spec",
+            dst_id="write_test_spec",
+            aliases={
+                "content": "specification",
+            },
+        )
+
+        # Inject the spec file path
+        spec_path_task = ConstantTask(
+            task_id="spec_path",
+            output=[{"filepath": spec_filepath}],
+            activation_policy=OncePolicy(),
+        )
+        orchestrator.add_task(spec_path_task)
+
+        orchestrator.add_edge(
+            src_id="spec_path",
+            dst_id="read_spec",
+            aliases={
+                "filepath": "filepath",
+            },
+        )
+
+    else:
+        # --- Without --spec: prompt user for request ---
+        user_request = input("Enter request: ")
+
+        request_task = ConstantTask(
+            task_id="user_request",
+            output=[{"request": user_request}],
+            activation_policy=OncePolicy(),
+        )
+        orchestrator.add_task(request_task)
+
+        # Edge: user_request -> test_spec_writer (pass the request)
+        orchestrator.add_edge(
+            src_id="user_request",
+            dst_id="write_test_spec",
+            aliases={
+                "request": "request",
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # 6. Inject the output file path
+    # ------------------------------------------------------------------
     output_path_task = ConstantTask(
         task_id="output_path",
         output=[{"filepath": "output/test_spec.md"}],
