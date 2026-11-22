@@ -3,7 +3,7 @@ import logging
 import os
 
 from src.config import config
-from src.prompt import Prompt, SHORT, CODE_ONLY, PATHS_RELATIVE_TO_ROOT, make_context_prompt
+from src.prompt import Prompt, BE_SHORT, PYTHON_CODE_ONLY, PATHS_RELATIVE_TO_ROOT
 from src.utils import call_ai
 
 
@@ -34,8 +34,8 @@ def main() -> None:
     final_prompt = (
         base_request 
         + PATHS_RELATIVE_TO_ROOT 
-        + SHORT 
-        + CODE_ONLY
+        + BE_SHORT 
+        + PYTHON_CODE_ONLY
     )
 
     logger.debug(f"Final composed prompt:\n{str(final_prompt)}")

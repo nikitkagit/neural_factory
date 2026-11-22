@@ -74,20 +74,43 @@ class Prompt:
 # ---------------------------------------------------------------------------
 
 
-SHORT = Prompt(
+BE_SHORT = Prompt(
     "Respond as briefly and to the point as possible",
-    priority=200
+    priority=100
 )
-CODE_ONLY = Prompt(
+
+
+PYTHON_CODE_ONLY = Prompt(
     "Output ONLY clean Python code. No explanations, no markdown wrappers (```), no comments outside the code. Only the executable code itself",
+    priority=100
+)
+NO_CODE = Prompt(
+    "Do not write any code.",
+    priority=100
+)
+CODE_COMMENTS_ENGLISH = Prompt(
+    "Comment code in English.",
+    priority=100
+)
+
+
+GEN_SPEC = Prompt(
+    "Generate a specification by the Main request in Russian. "
+    "The specification MUST have a strict structure with these sections: "
+    "## Цель, ## Файлы, ## Методы, ## Изменения, ## Тесты, ## Риски. "
+    "Use bullet points, not paragraphs. No general reasoning. "
+    "Always include exact method/class names.",
     priority=100
 )
 PATHS_RELATIVE_TO_ROOT = Prompt(
     "All file paths provided or requested are strictly relative to the project root directory.",
-    priority=50
+    priority=100
 )
 
 
-def make_context_prompt(user_name: str, priority: int = 5) -> Prompt:
+def make_request_prompt(request: str, priority: int = 500) -> Prompt:
     """Creates a prompt with user name context."""
-    return Prompt(f"User name: {user_name}", priority=priority)
+    return Prompt(f"Main request: {request}", priority=priority)
+
+def make_code_prompt(code: str, priority: int = 1000) -> Prompt:
+    return Prompt(f"Some code of the project: {code}", priority=priority)
