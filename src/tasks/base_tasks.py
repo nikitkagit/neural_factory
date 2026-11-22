@@ -127,22 +127,22 @@ class WriteToFileTask(Task):
         return [{"filepath": filepath, "status": "written"}]
 
 
-class ConstantTextTask(Task):
+class ConstantTask(Task):
     """
-    Emits a fixed text provided in the constructor.
+    Emits a fixed list of dictionaries provided in the constructor.
     Uses OncePolicy, which activates immediately without requiring any input edges.
     """
     
     def __init__(
         self, 
         task_id: TaskId, 
-        text: str, 
+        output: List[Dict[str, Any]],
         activation_policy: ActivationPolicy = OncePolicy(),
         merge_policy: Optional[InputMergePolicy] = None,
         failure_policy: Optional[FailurePolicy] = None,
     ):
         super().__init__(task_id, activation_policy, merge_policy, failure_policy)
-        self.text = text
+        self.output = output
 
     def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
-        return [{"content": self.text}]
+        return self.output

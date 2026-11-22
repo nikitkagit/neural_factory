@@ -6,7 +6,7 @@ from src.fab.policy import (
     OncePolicy, InputMergePolicy, FailurePolicy
 )
 
-from src.tasks.base_tasks import ReadFileTask, ReadCodeFilesTask, WriteToFileTask, ConstantTextTask
+from src.tasks.base_tasks import ReadFileTask, ReadCodeFilesTask, WriteToFileTask, ConstantTask
 
 
 class TestReadFileTask(unittest.TestCase):
@@ -249,64 +249,6 @@ class TestWriteToFileTask(unittest.TestCase):
         self.task.run({"input": "", "filepath": filepath})
         with open(filepath, "r") as f:
             self.assertEqual(f.read(), "")
-
-
-class TestConstantTextTask(unittest.TestCase):
-    """Tests for ConstantTextTask."""
-
-    def test_emit_constant_text(self):
-        """Should emit the text provided in constructor."""
-        task = ConstantTextTask(task_id="const_test", text="Hello!")
-        result = task.run({})
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["content"], "Hello!")
-
-    def test_empty_text(self):
-        """Should handle empty text."""
-        task = ConstantTextTask(task_id="empty_test", text="")
-        result = task.run({})
-        self.assertEqual(result[0]["content"], "")
-
-    def test_multiline_text(self):
-        """Should handle multiline text."""
-        text = "Line 1\nLine 2\nLine 3"
-        task = ConstantTextTask(task_id="multiline_test", text=text)
-        result = task.run({})
-        self.assertEqual(result[0]["content"], text)
-
-    def test_unicode_text(self):
-        """Should handle Unicode text."""
-        text = "Unicode: ñ, é, ü, 中文, 🌟"
-        task = ConstantTextTask(task_id="unicode_test", text=text)
-        result = task.run({})
-        self.assertEqual(result[0]["content"], text)
-
-    def test_ignores_input(self):
-        """Should ignore any input provided."""
-        task = ConstantTextTask(task_id="ignore_input", text="fixed")
-        result = task.run({"unused": "data", "other": 42})
-        self.assertEqual(result[0]["content"], "fixed")
-
-    def test_default_policy_is_once(self):
-        """Should use OncePolicy by default."""
-        task = ConstantTextTask(task_id="policy_test", text="test")
-        self.assertIsInstance(task.activation_policy, OncePolicy)
-
-    def test_custom_policies(self):
-        """Should accept custom policies."""
-        custom_activation = OncePolicy()
-        custom_merge = InputMergePolicy()
-        custom_failure = FailurePolicy()
-        task = ConstantTextTask(
-            task_id="custom_policies",
-            text="test",
-            activation_policy=custom_activation,
-            merge_policy=custom_merge,
-            failure_policy=custom_failure,
-        )
-        self.assertIs(task.activation_policy, custom_activation)
-        self.assertIs(task.merge_policy, custom_merge)
-        self.assertIs(task.failure_policy, custom_failure)
 
 
 if __name__ == "__main__":
