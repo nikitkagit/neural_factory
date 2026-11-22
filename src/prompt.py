@@ -95,11 +95,19 @@ CODE_COMMENTS_ENGLISH = Prompt(
 
 
 GEN_SPEC = Prompt(
-    "Generate a specification by the Main request in Russian. "
-    "The specification MUST have a strict structure with these sections: "
-    "## Цель, ## Файлы, ## Методы, ## Изменения, ## Тесты, ## Риски. "
-    "Use bullet points, not paragraphs. No general reasoning. "
-    "Always include exact method/class names.",
+    """
+    Generate a specification by the Main request in Russian.
+    The specification MUST have a strict structure with these sections:
+    ## Цель [The overall goal of the changes. Contains a reformulated and more rigorously described main request.]
+    ## Необходимые файлы [which contain the information necessary for implementation. here you only need to provide a list of files in the format without - symbol before it: path/to/file.code.]
+    ## Изменяемые файлы [which will need to be edited. Similar format.]
+    ## Изменения
+    ### <file path>:
+        <list of changes>
+    ## Тесты [semantics that one needs to know in order to subsequently write tests]
+    Use bullet points, not paragraphs. No general reasoning.
+    Always include exact method/class names.
+    """,
     priority=100
 )
 PATHS_RELATIVE_TO_ROOT = Prompt(
