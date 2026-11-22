@@ -1,3 +1,4 @@
+import logging
 import queue
 from dataclasses import dataclass
 from typing import Callable, Dict, Any, List, Union
@@ -6,6 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from .types import TaskId, InstanceId
 
 Inbox = queue.Queue
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -51,6 +55,7 @@ class InlineExecutor(Executor):
     """
     def submit(self, instance_id: InstanceId, task_id: TaskId, run_fn: Callable[[Dict], List[Dict]], inputs: Dict) -> None:
         try:
+            logger.debug("InlineExecutor: executing instance %s for task %s", instance_id, task_id)
             result = run_fn(inputs)
             self.inbox.put(CompletionEvent(instance_id, task_id, True, result))
         except Exception as e:
@@ -70,6 +75,7 @@ class ThreadPoolExecutorBackend(Executor):
         self.pool = ThreadPoolExecutor(max_workers=max_workers)
 
     def submit(self, instance_id: InstanceId, task_id: TaskId, run_fn: Callable[[Dict], List[Dict]], inputs: Dict) -> None:
+        logger.debug("ThreadPoolExecutor: submitting instance %s for task %s", instance_id, task_id)
         future = self.pool.submit(run_fn, inputs)
         future.add_done_callback(lambda f: self._handle_completion(instance_id, task_id, f))
 
@@ -77,8 +83,11 @@ class ThreadPoolExecutorBackend(Executor):
         try:
             result = future.result()
             self.inbox.put(CompletionEvent(instance_id, task_id, True, result))
+            logger.debug("ThreadPoolExecutor: instance %s completed successfully", instance_id)
         except Exception as e:
             self.inbox.put(CompletionEvent(instance_id, task_id, False, e))
+            logger.debug("ThreadPoolExecutor: instance %s failed: %s", instance_id, e)
 
     def shutdown(self, wait: bool = True) -> None:
+        logger.debug("ThreadPoolExecutor: shutting down pool (wait=%s)", wait)
         self.pool.shutdown(wait=wait)

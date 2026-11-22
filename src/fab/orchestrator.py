@@ -1,3 +1,4 @@
+import logging
 import time
 import queue
 import copy
@@ -11,6 +12,8 @@ from .edge import Edge
 from .policy import PolicyContext, PolicyNodeStatus, TriggerType, FailureAction
 from .executor import Executor, Inbox, CompletionEvent
 
+
+logger = logging.getLogger(__name__)
 
 class Orchestrator:
     """
@@ -39,6 +42,8 @@ class Orchestrator:
         # Configuration
         self.max_retries = 3
         self.failed = False
+ 
+        logger.debug("Orchestrator initialized with %d tasks, %d edges", len(self.tasks), len(self.edges))
 
     def add_task(self, task: Task) -> None:
         """Add a task to the graph. Validates uniqueness."""
@@ -47,6 +52,7 @@ class Orchestrator:
         self.tasks[task.task_id] = task
         self.out_edges[task.task_id] = []
         self.in_edges[task.task_id] = []
+        logger.debug("Task %s added to graph", task.task_id)
 
     def add_edge(
         self,
@@ -68,6 +74,7 @@ class Orchestrator:
         self.edges[edge_id] = edge
         self.out_edges[src_id].append(edge_id)
         self.in_edges[dst_id].append(edge_id)
+        logger.debug("Edge %s added: %s -> %s", edge_id, src_id, dst_id)
         return edge_id
 
     def run(self) -> Dict[str, Any]:
@@ -75,16 +82,20 @@ class Orchestrator:
         try:
             self._bootstrap()
             self._dispatch_wave()
+            logger.debug("Event loop started")
 
             while any(len(instances) > 0 for instances in self.running_instances.values()):
                 event = self.inbox.get()
+                logger.debug("Received completion event for instance %s, task %s, success=%s", event.instance_id, event.task_id, event.success)
                 self._handle_event(event)
                 if self.failed:
+                    logger.debug("Task failure detected, breaking event loop")
                     break
                 self._dispatch_wave()
 
             return self._report()
         finally:
+            logger.debug("Shutting down executor")
             # Ensure the execution pool is always shut down gracefully
             self.executor.shutdown(wait=True)
 
@@ -92,6 +103,7 @@ class Orchestrator:
         """Initial policy evaluation for all tasks to seed the first wave."""
         for task_id in self.tasks:
             ctx = self._build_policy_context(task_id, TriggerType.EXTERNAL)
+            logger.debug("Bootstrap: evaluating task %s, fresh=%s, status=%s", task_id, ctx.fresh, ctx.status)
             if self.tasks[task_id].activation_policy.should_activate(ctx):
                 pass  # _dispatch_wave will handle the actual gathering and submission
 
@@ -133,11 +145,16 @@ class Orchestrator:
             ctx = self._build_policy_context(task_id, TriggerType.EDGE)
             if not task.activation_policy.should_activate(ctx):
                 continue
+            logger.debug("Task %s activated, gathering inputs", task_id)
 
             # Gather incoming fresh states grouped by source TaskId
             incoming: Dict[TaskId, List[Dict[str, Any]]] = defaultdict(list)
             edges_to_consume: List[Tuple[Edge, int]] = []
             added_src_versions: Set[Tuple[TaskId, int]] = set()
+
+            logger.debug("INCOMING for %s: %s", task_id, incoming)
+            logger.debug("Edge states: %s", {eid: (self.edges[eid].src, self.edges[eid].consumed_version) for eid in self.in_edges[task_id]})
+            logger.debug("Src task versions: %s", {eid: self.tasks[self.edges[eid].src].version for eid in self.in_edges[task_id]})
 
             for edge_id in self.in_edges[task_id]:
                 edge = self.edges[edge_id]
@@ -162,9 +179,11 @@ class Orchestrator:
             except ValueError as e:
                 task.status = TaskStatus.FAILED
                 task.meta.last_error = e
+                logger.error("Task %s merge policy failed: %s", task_id, e)
                 continue
 
             if not snapshots:
+                logger.debug("Task %s: no snapshots to run (empty merge result)", task_id)
                 continue  # No instances to run (e.g., empty cartesian product)
 
             # Mark consumption BEFORE submitting to guarantee no data loss
@@ -172,6 +191,7 @@ class Orchestrator:
                 edge.mark_consumed(version)
 
             task.status = TaskStatus.RUNNING
+            logger.debug("Dispatching %d instance(s) for task %s", len(snapshots), task_id)
 
             for snapshot in snapshots:
                 instance_id = f"{task_id}_{uuid.uuid4().hex[:8]}"
@@ -180,6 +200,7 @@ class Orchestrator:
                 self.instance_retries[instance_id] = 0
                 self.running_instances[task_id].add(instance_id)
 
+                logger.debug("Submitting instance %s for task %s", instance_id, task_id)
                 self.executor.submit(instance_id, task_id, task.run, snapshot)
 
     def _handle_event(self, event: CompletionEvent) -> None:
@@ -190,6 +211,7 @@ class Orchestrator:
 
         # Ignore events for instances that were already cancelled/removed
         if instance_id not in self.running_instances[task_id]:
+            logger.debug("Ignoring stale event for instance %s", instance_id)
             return
 
         if not event.success:
@@ -203,15 +225,18 @@ class Orchestrator:
                 if self.instance_retries[instance_id] > self.max_retries:
                     self._fail_task(task_id)
                 else:
+                    logger.debug("Retrying instance %s for task %s (attempt %d)", instance_id, task_id, self.instance_retries[instance_id])
                     # Resubmit only this instance with the exact same snapshot
                     self.executor.submit(instance_id, task_id, task.run, self.instance_snapshots[instance_id])
                 return  # Do not remove from running yet
 
             elif action == FailureAction.SKIP:
+                logger.debug("Skipping failed instance %s for task %s", instance_id, task_id)
                 # Instance is considered done without result, doesn't affect final state
                 pass
 
             elif action == FailureAction.FAIL:
+                logger.debug("Failing task %s due to instance %s failure", task_id, instance_id)
                 self._fail_task(task_id)
                 return
         else:
@@ -221,6 +246,7 @@ class Orchestrator:
                 task.meta.last_error = TypeError(
                     f"Task {task_id} returned {type(payload).__name__}, expected list"
                 )
+                logger.error("Task %s returned non-list payload: %s", task_id, type(payload).__name__)
                 self._fail_task(task_id)
                 return
             for item in payload:
@@ -228,9 +254,11 @@ class Orchestrator:
                     task.meta.last_error = TypeError(
                         f"Task {task_id} returned list containing {type(item).__name__}, expected dict"
                     )
+                    logger.error("Task %s returned list with non-dict element: %s", task_id, type(item).__name__)
                     self._fail_task(task_id)
                     return
 
+            logger.debug("Instance %s completed successfully for task %s", instance_id, task_id)
             # Accumulate result; commit happens only after all instances complete
             self.instance_results[task_id].append(payload)
 
@@ -241,6 +269,7 @@ class Orchestrator:
 
         # Check if all instances for this task have finished
         if not self.running_instances[task_id]:
+            logger.debug("All instances of task %s completed, finalizing", task_id)
             self._finalize_task(task_id)
 
     def _fail_task(self, task_id: TaskId) -> None:
@@ -249,6 +278,7 @@ class Orchestrator:
         and signals the orchestrator to exit the event loop with an error.
         """
         task = self.tasks[task_id]
+        logger.error("Failing task %s (status=%s, error=%s)", task_id, task.status, task.meta.last_error)
         task.status = TaskStatus.FAILED
 
         # Clear running instances across all tasks to stop the entire graph
@@ -266,6 +296,7 @@ class Orchestrator:
         task = self.tasks[task_id]
 
         if task.status == TaskStatus.FAILED:
+            logger.debug("Task %s already failed, skipping finalization", task_id)
             return
 
         # Default aggregation: use the last completed instance's result list
@@ -279,6 +310,7 @@ class Orchestrator:
             task.version += 1
 
         task.status = TaskStatus.DONE
+        logger.debug("Task %s finalized: version=%d, state items=%d", task_id, task.version, len(task.state))
         task.meta.timestamp = time.time()
         task.meta.run_count += 1  # Incremented once per task, not per instance
         task.meta.last_error = None
