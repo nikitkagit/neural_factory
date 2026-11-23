@@ -146,3 +146,22 @@ class ConstantTask(Task):
 
     def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         return self.output
+
+
+class TransitTask(Task):
+    """
+    A simple transit Task that passes its input data directly to the output
+    without any transformations.
+    """
+
+    def __init__(
+        self,
+        task_id: TaskId,
+        activation_policy: ActivationPolicy = OncePolicy(),
+        merge_policy: Optional[InputMergePolicy] = None,
+        failure_policy: Optional[FailurePolicy] = None,
+    ):
+        super().__init__(task_id, activation_policy, merge_policy, failure_policy)
+
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return [inputs]

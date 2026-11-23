@@ -22,6 +22,7 @@ from src.fab.policy import OncePolicy, AllPolicy, CartesianProductMergePolicy
 from src.tasks.base_tasks import ConstantTask, ReadCodeFilesTask, WriteToFileTask
 from src.tasks.ai_tasks import SpecWriterTask
 from src.config import config
+from src.utils import AiClient
 
 
 def setup_logging() -> None:
@@ -53,12 +54,17 @@ def main():
             directories_to_scan.append(arg)
 
     # ------------------------------------------------------------------
-    # 2. Create the orchestrator (inline executor for simplicity)
+    # 2. Create AiClient instance
+    # ------------------------------------------------------------------
+    ai_client = AiClient()
+
+    # ------------------------------------------------------------------
+    # 3. Create the orchestrator (inline executor for simplicity)
     # ------------------------------------------------------------------
     orchestrator = Orchestrator(executor_cls=InlineExecutor)
 
     # ------------------------------------------------------------------
-    # 3. Create tasks
+    # 4. Create tasks
     # ------------------------------------------------------------------
     constant_task = ConstantTask(
         task_id="user_input",
@@ -79,6 +85,7 @@ def main():
 
     spec_writer_task = SpecWriterTask(
         task_id="write_spec",
+        ai_client=ai_client,
         activation_policy=AllPolicy(),          # needs both inputs fresh
         merge_policy=CartesianProductMergePolicy(),
     )
@@ -89,7 +96,7 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # 4. Register tasks in the graph
+    # 5. Register tasks in the graph
     # ------------------------------------------------------------------
     orchestrator.add_task(constant_task)
     orchestrator.add_task(read_code_task)
@@ -97,7 +104,7 @@ def main():
     orchestrator.add_task(write_task)
 
     # ------------------------------------------------------------------
-    # 5. Connect edges
+    # 6. Connect edges
     #
     #   constant_task ──request──────────────► spec_writer_task
     #   constant_task ──directories/files────► read_code_task
@@ -142,7 +149,7 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # 6. Set output filepath to output/spec.md
+    # 7. Set output filepath to output/spec.md
     # ------------------------------------------------------------------
     # We add a second constant task that only provides the output path.
     # This is a clean way to inject a fixed filepath without modifying
@@ -163,13 +170,13 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # 7. Run the pipeline
+    # 8. Run the pipeline
     # ------------------------------------------------------------------
     print("Starting pipeline...")
     report = orchestrator.run()
 
     # ------------------------------------------------------------------
-    # 8. Print summary
+    # 9. Print summary
     # ------------------------------------------------------------------
     print("\n=== Pipeline finished ===")
     for tid, info in report["tasks"].items():

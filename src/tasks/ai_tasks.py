@@ -10,7 +10,7 @@ from src.fab.policy import (
     ActivationPolicy, OncePolicy, 
     InputMergePolicy, FailurePolicy
 )
-from ..utils import call_ai
+from src.utils import AiClient
 
 
 class CallAITask(Task):
@@ -22,12 +22,14 @@ class CallAITask(Task):
     def __init__(
         self, 
         task_id: TaskId, 
+        ai_client: AiClient,
         prompt: Optional[Prompt] = None,
         activation_policy: ActivationPolicy = OncePolicy(),
         merge_policy: Optional[InputMergePolicy] = None,
         failure_policy: Optional[FailurePolicy] = None,
     ):
         super().__init__(task_id, activation_policy, merge_policy, failure_policy)
+        self._ai_client = ai_client
         self._prompt = prompt or Prompt()
 
     def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -42,12 +44,13 @@ class CallAITask(Task):
         ]
         
         payload = {"messages": messages}
-        response_text = call_ai(payload)
+        response_text = self._ai_client.call(payload)
         
         return [{
             "response": response_text,
             "input": input_text
         }]
+
 
 class SpecWriterTask(Task):
     """
@@ -60,11 +63,13 @@ class SpecWriterTask(Task):
     def __init__(
         self,
         task_id: TaskId,
+        ai_client: AiClient,
         activation_policy: ActivationPolicy = OncePolicy(),
         merge_policy: Optional[InputMergePolicy] = None,
         failure_policy: Optional[FailurePolicy] = None,
     ):
         super().__init__(task_id, activation_policy, merge_policy, failure_policy)
+        self._ai_client = ai_client
 
     def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         code = inputs.get("code")
@@ -94,9 +99,9 @@ class SpecWriterTask(Task):
             "reasoning": {"effort": "none"},
             "max_tokens": 4999,
             "temperature": 1.0
-            }
+        }
         
-        response_text = call_ai(payload)
+        response_text = self._ai_client.call(payload)
 
         result = {
             "specification": response_text,
@@ -121,11 +126,13 @@ class SpecTestWriterTask(Task):
     def __init__(
         self,
         task_id: TaskId,
+        ai_client: AiClient,
         activation_policy: ActivationPolicy = OncePolicy(),
         merge_policy: Optional[InputMergePolicy] = None,
         failure_policy: Optional[FailurePolicy] = None,
     ):
         super().__init__(task_id, activation_policy, merge_policy, failure_policy)
+        self._ai_client = ai_client
 
     def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         specification = inputs.get("specification")
@@ -155,9 +162,9 @@ class SpecTestWriterTask(Task):
             "reasoning": {"effort": "none"},
             "max_tokens": 4999,
             "temperature": 0.03
-            }
+        }
 
-        response_text = call_ai(payload)
+        response_text = self._ai_client.call(payload)
 
         result = {
             "specification": response_text,

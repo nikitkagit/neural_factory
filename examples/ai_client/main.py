@@ -4,7 +4,7 @@ import os
 
 from src.config import config
 from src.prompt import Prompt, BE_SHORT, PYTHON_CODE_ONLY, PATHS_RELATIVE_TO_ROOT
-from src.utils import call_ai
+from src.utils import AiClient
 
 
 def setup_logging() -> None:
@@ -27,7 +27,15 @@ def main() -> None:
 
     logger.info(f"Using API URL: {config.api_url}")
 
-    # 2. Compose the prompt using the Prompt builder
+    # 2. Create AiClient instance
+    model_name = os.environ.get("API_MODEL")
+    if not model_name:
+        logger.error("API_MODEL is not set. Please export it before running.")
+        sys.exit(1)
+
+    ai_client = AiClient(model=model_name)
+
+    # 3. Compose the prompt using the Prompt builder
     base_request = Prompt("Write a Python function that calculates the nth Fibonacci number.")
     
     # Combine prompts: the '+' operator handles priority sorting automatically
@@ -40,18 +48,10 @@ def main() -> None:
 
     logger.debug(f"Final composed prompt:\n{str(final_prompt)}")
 
-    # 3. Build the API payload (OpenAI-compatible chat completion format)
-
-    model_name = os.environ.get("API_MODEL")
-
-    if not model_name:
-        logger.error("API_MODEL is not set. Please export it before running.")
-        sys.exit(1)
-
+    # 4. Build the API payload (OpenAI-compatible chat completion format)
     logger.info(f"Using MODEL: {model_name}")
 
     payload = {
-        "model": model_name,
         "messages": [
             {
                 "role": "user",
@@ -61,10 +61,10 @@ def main() -> None:
         "temperature": 0.1,  # Low temperature for code generation
     }
 
-    # 4. Execute the AI call
+    # 5. Execute the AI call
     try:
         logger.info("Sending request to AI API...")
-        response_content = call_ai(payload)
+        response_content = ai_client.call(payload)
         
         print("\n" + "="*50)
         print("AI RESPONSE:")

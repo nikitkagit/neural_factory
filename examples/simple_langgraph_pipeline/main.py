@@ -15,8 +15,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-API_KEY = os.environ.get("API_KEY", "sk-HIuZLfuAPe92nKLcbUJC4cwLRa1Zs4R5")
-API_URL = "https://routerai.ru/api/v1/chat/completions"
+# Import AiClient from src.utils
+from src.utils import AiClient
+
+# Create AiClient instance with parameters from environment variables
+ai_client = AiClient(
+    api_url=os.environ.get("API_URL", "https://routerai.ru/api/v1/chat/completions"),
+    api_key=os.environ.get("API_KEY", "sk-HIuZLfuAPe92nKLcbUJC4cwLRa1Zs4R5"),
+    model="deepseek/deepseek-chat-v3.1",
+)
 
 # 1. Определяем состояние пайплайна
 class PipelineState(TypedDict):
@@ -29,56 +36,6 @@ class PipelineState(TypedDict):
     user_decision: Literal["retry", "abort", "approve"] | None
 
 # 2. Узлы — обычные Python-функции
-def call_ai(prompt: str) -> str:
-    """Вызывает curl напрямую — 100% аналог рабочего curl."""
-    logger.debug("Формирование payload для API...")
-    payload = {
-        "model": "deepseek/deepseek-chat-v3.1",
-        "messages": [{"role": "user", "content": prompt}],
-        "reasoning": {"effort": "none"},
-        "max_tokens": 1111,
-    }
-    
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False)
-        payload_file = f.name
-    
-    logger.debug(f"Временный файл с payload создан: {payload_file}")
-    
-    try:
-        logger.debug("Выполнение curl запроса...")
-        result = subprocess.run(
-            [
-                "curl", "-s", "-X", "POST",
-                API_URL,
-                "-H", f"Authorization: Bearer {API_KEY}",
-                "-H", "Content-Type: application/json",
-                "-d", f"@{payload_file}",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        
-        if result.returncode != 0:
-            logger.error(f"curl завершился с ошибкой: {result.stderr}")
-            raise RuntimeError(f"curl failed: {result.stderr}")
-        
-        logger.debug("Получен ответ от API, парсинг JSON...")
-        data = json.loads(result.stdout)
-        content = data["choices"][0]["message"].get("content", "")
-        
-        if not content:
-            logger.error(f"Пустой ответ от модели. Полный ответ: {data}")
-            raise RuntimeError(f"Пустой ответ: {data}")
-        
-        logger.debug(f"Успешно получено {len(content)} символов.")
-        return content
-    
-    finally:
-        if os.path.exists(payload_file):
-            os.remove(payload_file)
-            logger.debug(f"Временный файл {payload_file} удалён.")
-
 def generate_script(state: PipelineState) -> dict:
     logger.info("Генерация test_fs.py...")
     prompt = (
@@ -86,7 +43,12 @@ def generate_script(state: PipelineState) -> dict:
         "печатает имя, удаляет файл, печатает подтверждение. Путь — от __file__. "
         "\n\nВАЖНО: Выдай только код python"
     )
-    result = {"test_script": call_ai(prompt)}
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "reasoning": {"effort": "none"},
+        "max_tokens": 1111,
+    }
+    result = {"test_script": ai_client.call(payload)}
     logger.debug("Генерация test_fs.py завершена.")
     return result
 
@@ -99,7 +61,12 @@ def analyze_and_patch(state: PipelineState) -> dict:
         "\n\nВАЖНО: Выдай ТОЛЬКО чистый код Python. Никаких пояснений, никаких markdown-обёрток (```), "
         "никаких комментариев вне кода. Только сам исполняемый код."
     )
-    result = {"logger_script": call_ai(prompt)}
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "reasoning": {"effort": "none"},
+        "max_tokens": 1111,
+    }
+    result = {"logger_script": ai_client.call(payload)}
     logger.debug("Генерация fs_logger.py завершена.")
     return result
 
@@ -127,7 +94,12 @@ def validate(state: PipelineState) -> dict:
         f"Проанализируй вывод:\n\n{state['execution_log']}\n\n"
         "Выполнился ли скрипт успешно? Ответь строго ОДНИМ словом: УСПЕШНО или НЕУСПЕШНО."
     )
-    result = {"validation": call_ai(prompt)}
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "reasoning": {"effort": "none"},
+        "max_tokens": 1111,
+    }
+    result = {"validation": ai_client.call(payload)}
     logger.info(f"Результат валидации: {result['validation']}")
     return result
 

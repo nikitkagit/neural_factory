@@ -4,71 +4,115 @@ import json
 import tempfile
 import subprocess
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from .config import config
 
 logger = logging.getLogger(__name__)
 
-def call_ai(payload: Dict[str, Any]) -> str:
+
+class AiClient:
     """
-    Sends a request to the AI API using curl.
-    
-    :param payload: Dictionary representing the JSON payload of the request.
-    :return: String containing the response content.
+    Encapsulates the logic for calling an AI API via curl.
+    Allows parameterization of API URL, API key, model, and other settings.
     """
-    logger.debug("Forming payload for API...")
-    
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False)
-        payload_file = f.name
-    
-    logger.debug(f"Temporary payload file created: {payload_file}")
-    
-    try:
-        logger.debug("Executing curl request...")
-        result = subprocess.run(
-            [
-                "curl", "-s", "-X", "POST",
-                config.api_url,
-                "-H", f"Authorization: Bearer {config.api_key}",
-                "-H", "Content-Type: application/json",
-                "-d", f"@{payload_file}",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        
-        if result.returncode != 0:
-            logger.error(f"curl failed with error: {result.stderr}")
-            raise RuntimeError(f"curl failed: {result.stderr}")
-        
-        logger.debug("Received response from API, parsing JSON...")
-        data = json.loads(result.stdout)
-        
-        # Explicit check for API-level error responses
-        if "error" in data:
-            logger.error(f"API returned an error: {data['error']}")
-            raise RuntimeError(f"API Error: {data['error']}")
-        
-        # Validate expected response structure
-        if "choices" not in data:
-            logger.error(f"Unexpected API response format. Full response: {data}")
-            raise RuntimeError(f"Unexpected response format (missing 'choices'): {data}")
-        
-        content = data["choices"][0]["message"].get("content", "")
-        
-        if not content:
-            logger.error(f"Empty response from model. Full response: {data}")
-            raise RuntimeError(f"Empty response: {data}")
-        
-        logger.debug(f"Successfully received {len(content)} characters.")
-        return content
-    
-    finally:
-        if os.path.exists(payload_file):
-            os.remove(payload_file)
-            logger.debug(f"Temporary file {payload_file} deleted.")
+
+    def __init__(
+        self,
+        api_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        **extra_params,
+    ) -> None:
+        """
+        Initialize the AiClient with optional overrides for API settings.
+
+        :param api_url: The API endpoint URL. Defaults to config.api_url.
+        :param api_key: The API key. Defaults to config.api_key.
+        :param model: The model name to use. Defaults to None (can be set per-call).
+        :param extra_params: Additional parameters to include in every payload.
+        """
+        self._api_url = api_url or config.api_url
+        self._api_key = api_key or config.api_key
+        self._model = model
+        self._extra_params = extra_params
+
+    def call(self, payload: Dict[str, Any], **override_params) -> str:
+        """
+        Sends a request to the AI API using curl.
+
+        :param payload: Dictionary representing the JSON payload of the request.
+        :param override_params: Optional overrides for instance-level parameters
+                                (e.g., model, api_url, api_key).
+        :return: String containing the response content.
+        """
+        # Merge instance-level model with override
+        model = override_params.pop("model", self._model)
+        if model:
+            payload["model"] = model
+
+        # Merge extra params from instance
+        merged_payload = {**self._extra_params, **payload}
+
+        # Allow overriding api_url and api_key per call
+        api_url = override_params.pop("api_url", self._api_url)
+        api_key = override_params.pop("api_key", self._api_key)
+
+        # Include any remaining override params in the payload
+        merged_payload.update(override_params)
+
+        logger.debug("Forming payload for API...")
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump(merged_payload, f, ensure_ascii=False)
+            payload_file = f.name
+
+        logger.debug(f"Temporary payload file created: {payload_file}")
+
+        try:
+            logger.debug("Executing curl request...")
+            result = subprocess.run(
+                [
+                    "curl", "-s", "-X", "POST",
+                    api_url,
+                    "-H", f"Authorization: Bearer {api_key}",
+                    "-H", "Content-Type: application/json",
+                    "-d", f"@{payload_file}",
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                logger.error(f"curl failed with error: {result.stderr}")
+                raise RuntimeError(f"curl failed: {result.stderr}")
+
+            logger.debug("Received response from API, parsing JSON...")
+            data = json.loads(result.stdout)
+
+            # Explicit check for API-level error responses
+            if "error" in data:
+                logger.error(f"API returned an error: {data['error']}")
+                raise RuntimeError(f"API Error: {data['error']}")
+
+            # Validate expected response structure
+            if "choices" not in data:
+                logger.error(f"Unexpected API response format. Full response: {data}")
+                raise RuntimeError(f"Unexpected response format (missing 'choices'): {data}")
+
+            content = data["choices"][0]["message"].get("content", "")
+
+            if not content:
+                logger.error(f"Empty response from model. Full response: {data}")
+                raise RuntimeError(f"Empty response: {data}")
+
+            logger.debug(f"Successfully received {len(content)} characters.")
+            return content
+
+        finally:
+            if os.path.exists(payload_file):
+                os.remove(payload_file)
+                logger.debug(f"Temporary file {payload_file} deleted.")
 
 
 def recalculate_diff_headers(diff_text: str) -> str:
@@ -124,8 +168,6 @@ def recalculate_diff_headers(diff_text: str) -> str:
             elif stripped.startswith(" "):
                 old_count += 1
                 new_count += 1
-            # Empty lines inside a hunk — skip, they are not valid diff lines
-            # and should not affect counts
 
         # Rebuild header preserving the suffix (e.g., class name)
         new_header = f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{suffix}\n"

@@ -31,6 +31,7 @@ from src.fab.policy import OncePolicy, AllPolicy, CartesianProductMergePolicy
 from src.tasks.base_tasks import ConstantTask, ReadCodeFilesTask, WriteToFileTask, ReadFileTask
 from src.tasks.ai_tasks import SpecTestWriterTask
 from src.config import config
+from src.utils import AiClient
 
 
 def setup_logging() -> None:
@@ -75,12 +76,17 @@ def main():
             directories_to_scan.append(arg)
 
     # ------------------------------------------------------------------
-    # 2. Create the orchestrator (inline executor for simplicity)
+    # 2. Create AiClient instance
+    # ------------------------------------------------------------------
+    ai_client = AiClient()
+
+    # ------------------------------------------------------------------
+    # 3. Create the orchestrator (inline executor for simplicity)
     # ------------------------------------------------------------------
     orchestrator = Orchestrator(executor_cls=InlineExecutor)
 
     # ------------------------------------------------------------------
-    # 3. Create tasks
+    # 4. Create tasks
     # ------------------------------------------------------------------
     constant_task = ConstantTask(
         task_id="user_input",
@@ -100,6 +106,7 @@ def main():
 
     test_spec_writer_task = SpecTestWriterTask(
         task_id="write_test_spec",
+        ai_client=ai_client,
         activation_policy=AllPolicy(),          # needs both inputs fresh
         merge_policy=CartesianProductMergePolicy(),
     )
@@ -116,7 +123,7 @@ def main():
     orchestrator.add_task(write_task)
 
     # ------------------------------------------------------------------
-    # 4. Connect common edges
+    # 5. Connect common edges
     # ------------------------------------------------------------------
     # Edge 1: user_input -> read_code  (pass directories and files)
     orchestrator.add_edge(
@@ -147,7 +154,7 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # 5. Conditional logic: with --spec or without
+    # 6. Conditional logic: with --spec or without
     # ------------------------------------------------------------------
     if spec_filepath is not None:
         # --- With --spec: read specification from file ---
@@ -220,7 +227,7 @@ def main():
         )
 
     # ------------------------------------------------------------------
-    # 6. Inject the output file path
+    # 7. Inject the output file path
     # ------------------------------------------------------------------
     output_path_task = ConstantTask(
         task_id="output_path",
@@ -238,13 +245,13 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # 7. Run the pipeline
+    # 8. Run the pipeline
     # ------------------------------------------------------------------
     print("Starting pipeline...")
     report = orchestrator.run()
 
     # ------------------------------------------------------------------
-    # 8. Print summary
+    # 9. Print summary
     # ------------------------------------------------------------------
     print("\n=== Pipeline finished ===")
     for tid, info in report["tasks"].items():
