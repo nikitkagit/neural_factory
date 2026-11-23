@@ -138,13 +138,11 @@ def main():
         dst_id="save_spec",
         aliases={
             "specification": "input",       # WriteToFileTask expects 'input'
-            "request": "filepath",          # we'll override filepath below
         },
     )
 
     # ------------------------------------------------------------------
-    # 6. Override the filepath for the write task via a constant edge
-    #    (we want to write to output/spec.md)
+    # 6. Set output filepath to output/spec.md
     # ------------------------------------------------------------------
     # We add a second constant task that only provides the output path.
     # This is a clean way to inject a fixed filepath without modifying
