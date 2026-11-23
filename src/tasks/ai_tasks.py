@@ -108,7 +108,7 @@ class SpecWriterTask(Task):
 
         return [result]
 
-class TestSpecWriterTask(Task):
+class SpecTestWriterTask(Task):
     """
     Writes a test specification.
     Accepts either 'specification' (str) or 'request' (str) in inputs.

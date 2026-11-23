@@ -8,13 +8,13 @@ Usage:
 
 Graph (with --spec):
   ConstantTask (directories, files)
-    ├── directories/files ──► ReadCodeFilesTask ──► code ──► TestSpecWriterTask ──► WriteToFileTask
-    └── filepath ──► ReadFileTask ──► specification ──► TestSpecWriterTask
+    ├── directories/files ──► ReadCodeFilesTask ──► code ──► SpecTestWriterTask ──► WriteToFileTask
+    └── filepath ──► ReadFileTask ──► specification ──► SpecTestWriterTask
 
 Graph (without --spec):
   ConstantTask (directories, files)
-    ├── directories/files ──► ReadCodeFilesTask ──► code ──► TestSpecWriterTask ──► WriteToFileTask
-    └── user request (via ConstantTask) ──► request ──► TestSpecWriterTask
+    ├── directories/files ──► ReadCodeFilesTask ──► code ──► SpecTestWriterTask ──► WriteToFileTask
+    └── user request (via ConstantTask) ──► request ──► SpecTestWriterTask
 """
 
 import sys
@@ -29,7 +29,7 @@ from src.fab.orchestrator import Orchestrator
 from src.fab.executor import InlineExecutor
 from src.fab.policy import OncePolicy, AllPolicy, CartesianProductMergePolicy
 from src.tasks.base_tasks import ConstantTask, ReadCodeFilesTask, WriteToFileTask, ReadFileTask
-from src.tasks.ai_tasks import TestSpecWriterTask
+from src.tasks.ai_tasks import SpecTestWriterTask
 from src.config import config
 
 
@@ -98,7 +98,7 @@ def main():
         activation_policy=OncePolicy(),
     )
 
-    test_spec_writer_task = TestSpecWriterTask(
+    test_spec_writer_task = SpecTestWriterTask(
         task_id="write_test_spec",
         activation_policy=AllPolicy(),          # needs both inputs fresh
         merge_policy=CartesianProductMergePolicy(),
