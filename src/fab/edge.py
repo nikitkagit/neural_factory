@@ -28,6 +28,9 @@ class Edge:
     # Groups required for activation; empty list means no restriction
     groups: List[str] = field(default_factory=list)
 
+    # Priority for merge conflict resolution; higher value wins
+    priority: int = 0
+
     def mark_consumed(self, version: int) -> None:
         """
         Marks the edge as consumed up to the given version.

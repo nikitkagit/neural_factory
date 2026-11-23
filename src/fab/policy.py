@@ -119,10 +119,16 @@ class InputMergePolicy:
     Answers the question: "How to combine incoming data packets into execution snapshots?"
     """
 
-    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]], priority_map: Optional[Dict[TaskId, int]] = None) -> List[Dict[str, Any]]:
         """
         Accepts a dictionary mapping source TaskId to a list of its fresh states.
         Returns a list of flat snapshot dictionaries, each representing one task instance execution.
+        
+        Args:
+            incoming: Dictionary mapping source TaskId to list of state dicts from that source.
+            priority_map: Optional dictionary mapping source TaskId to its priority.
+                          Higher priority values win when keys conflict during merge.
+                          If not provided, all sources are treated as equal priority (0).
         """
         raise NotImplementedError("Subclasses must implement merge")
 
@@ -133,21 +139,35 @@ class CartesianProductMergePolicy(InputMergePolicy):
     If any source list is empty, returns an empty list (no execution).
     """
 
-    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]], priority_map: Optional[Dict[TaskId, int]] = None) -> List[Dict[str, Any]]:
         if not incoming:
             return [{}]
         
         if any(len(v) == 0 for v in incoming.values()):
             return []
+        
+        # Default priority_map if not provided
+        if priority_map is None:
+            priority_map = {k: 0 for k in incoming.keys()}
             
         keys = list(incoming.keys())
         combos = itertools.product(*(incoming[k] for k in keys))
         result = []
         for combo in combos:
             merged = {}
-            for d in combo:
-                merged.update(d)
-            result.append(merged)
+            # Merge with priority: for each key, keep value from highest priority source
+            for d, src_id in zip(combo, keys):
+                src_priority = priority_map.get(src_id, 0)
+                for k, v in d.items():
+                    if k not in merged:
+                        merged[k] = (v, src_priority)
+                    else:
+                        existing_priority = merged[k][1]
+                        if src_priority > existing_priority:
+                            merged[k] = (v, src_priority)
+            # Strip priority tuples to get final dict
+            final_merged = {k: v[0] for k, v in merged.items()}
+            result.append(final_merged)
         return result
 
 
@@ -157,13 +177,13 @@ class SingleItemPerSourcePolicy(InputMergePolicy):
     Combines them into a single snapshot. Raises ValueError if any source has >1 item.
     """
 
-    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]], priority_map: Optional[Dict[TaskId, int]] = None) -> List[Dict[str, Any]]:
         for k, v in incoming.items():
             if len(v) > 1:
                 raise ValueError(f"Source {k} provided {len(v)} items, expected <= 1")
         
         # Reuse cartesian logic, which is safe here since max length is 1
-        return CartesianProductMergePolicy().merge(incoming)
+        return CartesianProductMergePolicy().merge(incoming, priority_map)
 
 
 class AllButOneSinglePolicy(InputMergePolicy):
@@ -173,12 +193,12 @@ class AllButOneSinglePolicy(InputMergePolicy):
     Raises ValueError if more than one source has >1 item.
     """
 
-    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]], priority_map: Optional[Dict[TaskId, int]] = None) -> List[Dict[str, Any]]:
         multi_sources = [k for k, v in incoming.items() if len(v) > 1]
         if len(multi_sources) > 1:
             raise ValueError(f"Multiple sources provided >1 item: {multi_sources}")
             
-        return CartesianProductMergePolicy().merge(incoming)
+        return CartesianProductMergePolicy().merge(incoming, priority_map)
 
 
 class FlattenMergePolicy(InputMergePolicy):
@@ -194,7 +214,7 @@ class FlattenMergePolicy(InputMergePolicy):
     produce independent results that should be processed sequentially by the next task.
     """
 
-    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]], priority_map: Optional[Dict[TaskId, int]] = None) -> List[Dict[str, Any]]:
         result = []
         for src_id, states in incoming.items():
             for state in states:

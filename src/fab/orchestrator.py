@@ -59,7 +59,8 @@ class Orchestrator:
         src_id: TaskId,
         dst_id: TaskId,
         aliases: Optional[Dict[str, str]] = None,
-        groups: Optional[List[str]] = None
+        groups: Optional[List[str]] = None,
+        priority: int = 0
     ) -> EdgeId:
         """Add an edge to the graph. Validates existence of endpoints and uniqueness."""
         if src_id not in self.tasks:
@@ -76,12 +77,13 @@ class Orchestrator:
             src=src_id,
             dst=dst_id,
             aliases=aliases or {},
-            groups=groups or []
+            groups=groups or [],
+            priority=priority
         )
         self.edges[edge_id] = edge
         self.out_edges[src_id].append(edge_id)
         self.in_edges[dst_id].append(edge_id)
-        logger.debug("Edge %s added: %s -> %s (groups=%s)", edge_id, src_id, dst_id, edge.groups)
+        logger.debug("Edge %s added: %s -> %s (groups=%s, priority=%d)", edge_id, src_id, dst_id, edge.groups, priority)
         return edge_id
 
     def run(self) -> Dict[str, Any]:
@@ -177,6 +179,8 @@ class Orchestrator:
 
             # Gather incoming fresh states grouped by source TaskId
             incoming: Dict[TaskId, List[Dict[str, Any]]] = defaultdict(list)
+            # Priority map: maps source TaskId to the maximum priority among edges from that source
+            priority_map: Dict[TaskId, int] = {}
             edges_to_consume: List[Tuple[Edge, int]] = []
             added_src_versions: Set[Tuple[TaskId, int]] = set()
 
@@ -207,11 +211,16 @@ class Orchestrator:
                                 aliased_item[new_key] = copy.deepcopy(v)
                             incoming[edge.src].append(aliased_item)
                         added_src_versions.add(key)
+                    
+                    # Track maximum priority for this source
+                    if edge.src not in priority_map or edge.priority > priority_map[edge.src]:
+                        priority_map[edge.src] = edge.priority
+                    
                     edges_to_consume.append((edge, src_task.version))
 
-            # Merge into snapshots via the task's merge policy
+            # Merge into snapshots via the task's merge policy, passing priority_map
             try:
-                snapshots = task.merge_policy.merge(incoming)
+                snapshots = task.merge_policy.merge(incoming, priority_map)
             except ValueError as e:
                 task.status = TaskStatus.FAILED
                 task.meta.last_error = e
@@ -373,6 +382,7 @@ class Orchestrator:
                 "dst": edge.dst,
                 "consumed_version": edge.consumed_version,
                 "aliases": edge.aliases,
-                "groups": edge.groups
+                "groups": edge.groups,
+                "priority": edge.priority
             }
         return report

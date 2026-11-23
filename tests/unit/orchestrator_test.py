@@ -692,3 +692,140 @@ def test_groups_field_preserved_in_task_state():
     assert len(src_state) == 1
     assert "__groups" in src_state[0]
     assert src_state[0]["__groups"] == ["group_a"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: Edge priority feature
+# ---------------------------------------------------------------------------
+
+def test_edge_priority_default_value():
+    """Verify that creating an Edge without priority defaults to 0."""
+    orch = build_orchestrator()
+    orch.add_task(EchoTask("src", OncePolicy()))
+    orch.add_task(EchoTask("dst", OncePolicy()))
+    edge_id = orch.add_edge("src", "dst")
+    assert orch.edges[edge_id].priority == 0
+
+
+def test_edge_priority_custom_value():
+    """Verify that creating an Edge with priority=5 sets it correctly."""
+    orch = build_orchestrator()
+    orch.add_task(EchoTask("src", OncePolicy()))
+    orch.add_task(EchoTask("dst", OncePolicy()))
+    edge_id = orch.add_edge("src", "dst", priority=5)
+    assert orch.edges[edge_id].priority == 5
+
+
+def test_merge_with_priority_wins():
+    """Two sources with same keys but different priorities: higher priority wins."""
+    orch = build_orchestrator()
+    orch.add_task(ConstantTask("src_high", OncePolicy(), {"key": "high_value"}))
+    orch.add_task(ConstantTask("src_low", OncePolicy(), {"key": "low_value"}))
+    orch.add_task(EchoTask("dst", AllPolicy()))
+    orch.add_edge("src_high", "dst", priority=10)
+    orch.add_edge("src_low", "dst", priority=1)
+
+    report = orch.run()
+
+    assert report["tasks"]["dst"]["status"] == "DONE"
+    dst_state = orch.tasks["dst"].state
+    assert len(dst_state) == 1
+    echo_data = dst_state[0]["echo"]
+    # Higher priority (10) should win over lower priority (1)
+    assert echo_data["key"] == "high_value"
+
+
+def test_merge_with_priority_no_conflict():
+    """Two sources with different keys and different priorities: all keys present."""
+    orch = build_orchestrator()
+    orch.add_task(ConstantTask("src_a", OncePolicy(), {"key_a": "value_a"}))
+    orch.add_task(ConstantTask("src_b", OncePolicy(), {"key_b": "value_b"}))
+    orch.add_task(EchoTask("dst", AllPolicy()))
+    orch.add_edge("src_a", "dst", priority=10)
+    orch.add_edge("src_b", "dst", priority=5)
+
+    report = orch.run()
+
+    assert report["tasks"]["dst"]["status"] == "DONE"
+    dst_state = orch.tasks["dst"].state
+    assert len(dst_state) == 1
+    echo_data = dst_state[0]["echo"]
+    assert echo_data["key_a"] == "value_a"
+    assert echo_data["key_b"] == "value_b"
+
+
+def test_cartesian_product_merge_with_priority():
+    """CartesianProductMergePolicy with priorities on key conflict."""
+    policy = CartesianProductMergePolicy()
+    incoming = {
+        "A": [{"key": "from_a"}],
+        "B": [{"key": "from_b"}]
+    }
+    priority_map = {"A": 10, "B": 1}
+    result = policy.merge(incoming, priority_map)
+    assert len(result) == 1
+    # Higher priority (A) should win the conflict
+    assert result[0]["key"] == "from_a"
+
+
+def test_single_item_per_source_policy_with_priority():
+    """SingleItemPerSourcePolicy with priorities on key conflict."""
+    policy = SingleItemPerSourcePolicy()
+    incoming = {
+        "A": [{"key": "from_a"}],
+        "B": [{"key": "from_b"}]
+    }
+    priority_map = {"A": 1, "B": 10}
+    result = policy.merge(incoming, priority_map)
+    assert len(result) == 1
+    # Higher priority (B) should win the conflict
+    assert result[0]["key"] == "from_b"
+
+
+def test_all_but_one_single_policy_with_priority():
+    """AllButOneSinglePolicy with priorities on key conflict."""
+    policy = AllButOneSinglePolicy()
+    incoming = {
+        "Stream": [{"key": "stream_val"}, {"key": "stream_val2"}],
+        "Context": [{"key": "context_val"}]
+    }
+    priority_map = {"Stream": 5, "Context": 10}
+    result = policy.merge(incoming, priority_map)
+    assert len(result) == 2
+    # Higher priority (Context) should win the conflict in each snapshot
+    for snapshot in result:
+        assert snapshot["key"] == "context_val"
+
+
+def test_flatten_merge_policy_with_priority():
+    """FlattenMergePolicy with priorities on key conflict."""
+    policy = FlattenMergePolicy()
+    incoming = {
+        "A": [{"key": "from_a"}],
+        "B": [{"key": "from_b"}]
+    }
+    priority_map = {"A": 10, "B": 1}
+    result = policy.merge(incoming, priority_map)
+    # FlattenMergePolicy creates separate snapshots per source, so no conflict
+    assert len(result) == 2
+    assert {"A": {"key": "from_a"}} in result
+    assert {"B": {"key": "from_b"}} in result
+
+
+def test_orchestrator_passes_priority_to_merge():
+    """Verify that Orchestrator._dispatch_wave passes priority_map to merge."""
+    orch = build_orchestrator()
+    orch.add_task(ConstantTask("src_a", OncePolicy(), {"key": "value_a"}))
+    orch.add_task(ConstantTask("src_b", OncePolicy(), {"key": "value_b"}))
+    orch.add_task(EchoTask("dst", AllPolicy()))
+    orch.add_edge("src_a", "dst", priority=10)
+    orch.add_edge("src_b", "dst", priority=5)
+
+    report = orch.run()
+
+    # If priority_map was correctly passed, higher priority (src_a) wins
+    assert report["tasks"]["dst"]["status"] == "DONE"
+    dst_state = orch.tasks["dst"].state
+    assert len(dst_state) == 1
+    echo_data = dst_state[0]["echo"]
+    assert echo_data["key"] == "value_a"
