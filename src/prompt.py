@@ -123,6 +123,7 @@ REGEN_SPEC = Prompt(
 GEN_SPEC_FOR_TESTS = Prompt(
     """
     Generate a specification for tests by the given specification in Russian.
+    Tests should focus on how the code is used, rather than verifying its internal structure (which makes them brittle).
     The specification MUST have a strict structure with these sections:
     ## Цель [The short overall goal of the changes.]
     ## Необходимые файлы [which contain the information necessary for implementation. here you only need to provide a list of files in the format WITHOUT MINUS '-' symbol before it: path/to/file.code.]
