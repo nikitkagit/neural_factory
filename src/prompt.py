@@ -76,27 +76,26 @@ class Prompt:
 
 BE_SHORT = Prompt(
     "Respond as briefly and to the point as possible",
-    priority=100
+    priority=1000
 )
 
 
 PYTHON_CODE_ONLY = Prompt(
     "Output ONLY clean Python code. No explanations, no markdown wrappers (```), no comments outside the code. Only the executable code itself",
-    priority=100
+    priority=2000
 )
 NO_CODE = Prompt(
     "Do not write any code.",
-    priority=100
+    priority=2000
 )
 CODE_COMMENTS_ENGLISH = Prompt(
     "Comment code in English.",
-    priority=100
+    priority=2000
 )
 
 
-GEN_SPEC = Prompt(
+SPEC_FORMAT = Prompt(
     """
-    Generate a specification by the Main request in Russian.
     The specification MUST have a strict structure with these sections:
     ## Цель [The overall goal of the changes. Contains a reformulated and more rigorously described main request.]
     ## Необходимые файлы [which contain the information necessary for implementation. here you only need to provide a list of files in the format without - symbol before it: path/to/file.code.]
@@ -108,7 +107,18 @@ GEN_SPEC = Prompt(
     Use bullet points, not paragraphs. No general reasoning.
     Always include exact method/class names.
     """,
-    priority=100
+    priority=3001
+)
+GEN_SPEC = Prompt(
+    "Generate a specification by the Main request in Russian.",
+    priority=3000
+)
+REGEN_SPEC = Prompt(
+    """
+    Rewrite this specification in accordance with the requirements of the main request in Russian.
+    You MUST make exactly those changes that are specified in the request.
+    """,
+    priority=3000
 )
 GEN_SPEC_FOR_TESTS = Prompt(
     """
@@ -122,25 +132,25 @@ GEN_SPEC_FOR_TESTS = Prompt(
         <list of changes>
     No general reasoning. Always include exact method/class names. You mustn't use minus '-' before filepaths.
     """,
-    priority=100
+    priority=3000
 )
 
 
 PATHS_RELATIVE_TO_ROOT = Prompt(
     "All file paths provided or requested are strictly relative to the project root directory.",
-    priority=100
+    priority=3000
 )
 
 
-def make_request_prompt(request: str, priority: int = 500) -> Prompt:
+def make_request_prompt(request: str, priority: int = 5000) -> Prompt:
     """Creates a prompt with user name context."""
     return Prompt(f"Main request: {request}", priority=priority)
 
-def make_code_prompt(code: str, priority: int = 1000) -> Prompt:
+def make_code_prompt(code: str, priority: int = 7000) -> Prompt:
     return Prompt(f"Some code of the project: {code}", priority=priority)
 
-def make_specification_prompt(spec: str, priority: int = 1000) -> Prompt:
+def make_specification_prompt(spec: str, priority: int = 7010) -> Prompt:
     return Prompt(f"Main specification: {spec}", priority=priority)
 
-def make_previous_specification_prompt(spec: str, priority: int = 1000) -> Prompt:
+def make_previous_specification_prompt(spec: str, priority: int = 7020) -> Prompt:
     return Prompt(f"Previous specification: {spec}", priority=priority)

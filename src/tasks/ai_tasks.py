@@ -4,7 +4,7 @@ from src.fab.task import Task, TaskId
 from src.prompt import (
     Prompt, make_request_prompt, make_code_prompt, make_specification_prompt,
     make_previous_specification_prompt,
-    GEN_SPEC, NO_CODE, GEN_SPEC_FOR_TESTS
+    SPEC_FORMAT, GEN_SPEC, NO_CODE, GEN_SPEC_FOR_TESTS
 )
 from src.fab.policy import (
     ActivationPolicy, OncePolicy, 
@@ -82,7 +82,7 @@ class SpecWriterTask(Task):
             raise ValueError("Input must contain 'request' (str).")
 
         # Build the combined prompt with code and request
-        combined = GEN_SPEC + NO_CODE
+        combined = SPEC_FORMAT + GEN_SPEC + NO_CODE
         combined += make_code_prompt(code) + make_request_prompt(request)
 
         # Add previous specification if present and is a string
