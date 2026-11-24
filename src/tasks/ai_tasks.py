@@ -100,7 +100,10 @@ class SpecWriterTask(Task):
             "messages": messages,
             "reasoning": {"effort": "none"},
             "max_tokens": 4999,
-            "temperature": 1.0
+            "temperature": 1.0,
+            "provider": {
+                "only": ["fireworks"]
+            }
         }
         
         response_text = self._ai_client.call(payload)
@@ -163,7 +166,10 @@ class SpecTestWriterTask(Task):
             "messages": messages,
             "reasoning": {"effort": "none"},
             "max_tokens": 4999,
-            "temperature": 0.03
+            "temperature": 0.03,
+            "provider": {
+                "only": ["fireworks"]
+            }
         }
 
         response_text = self._ai_client.call(payload)
