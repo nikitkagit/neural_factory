@@ -128,13 +128,6 @@ class TestReadCodeFilesTask(unittest.TestCase):
         self.assertIn("explicit", result[0]["code"])
         self.assertIn("from_dir", result[0]["code"])
 
-    def test_missing_both_raises_error(self):
-        """Should raise ValueError when neither files nor directories provided."""
-        with self.assertRaises(ValueError) as ctx:
-            self.task.run({})
-        self.assertIn("directories", str(ctx.exception))
-        self.assertIn("files", str(ctx.exception))
-
     def test_nonexistent_paths_ignored(self):
         """Should silently skip non-existent files and directories."""
         result = self.task.run({

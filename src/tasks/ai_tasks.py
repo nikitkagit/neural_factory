@@ -76,7 +76,7 @@ class SpecWriterTask(Task):
         request = inputs.get("request")
         previous_specification = inputs.get("previous_specification")
 
-        if not code or not isinstance(code, str):
+        if code is None or not isinstance(code, str):
             raise ValueError("Input must contain 'code' (str).")
         if not request or not isinstance(request, str):
             raise ValueError("Input must contain 'request' (str).")

@@ -59,7 +59,7 @@ class ReadCodeFilesTask(Task):
         files: List[str] = inputs.get("files", [])
 
         if not directories and not files:
-            raise ValueError("At least one of 'directories' or 'files' must be provided.")
+            return [{"code": ""}]
 
         code_parts: List[str] = []
 
