@@ -829,3 +829,38 @@ def test_orchestrator_passes_priority_to_merge():
     assert len(dst_state) == 1
     echo_data = dst_state[0]["echo"]
     assert echo_data["key"] == "value_a"
+
+def test_downstream_reactivates_when_upstream_reruns_with_identical_output():
+    """
+    Behavioural contract: a successful re-run of a task must propagate to its
+    downstream consumers even when the produced state is byte-identical to
+    the previous run. Without this, retry/edit feedback cycles silently stall
+    after the first iteration.
+
+    Graph: src1 -> sink, src2 -> sink, sink -> observer.
+
+    - src1 and src2 are one-shot roots, so sink is activated twice.
+    - sink always returns the same constant dict (state never changes).
+    - observer under AnyPolicy must therefore run twice: once per sink
+      completion. With the old "bump version only on state change" rule,
+      the second sink completion is invisible downstream and observer runs
+      only once.
+    """
+    orch = build_orchestrator()
+
+    orch.add_task(ConstantTask("src1", OncePolicy(), {"tag": "s1"}))
+    orch.add_task(ConstantTask("src2", OncePolicy(), {"tag": "s2"}))
+    orch.add_task(ConstantTask("sink", AnyPolicy(), {"sink": "value"}))
+    observer = CountingTask("observer", AnyPolicy())
+    orch.add_task(observer)
+
+    orch.add_edge("src1", "sink")
+    orch.add_edge("src2", "sink")
+    orch.add_edge("sink", "observer")
+
+    orch.run()
+
+    assert observer.run_count_local == 2, (
+        "observer must re-activate after sink's second (identical) run; "
+        "under the old 'bump version only on state change' rule it ran once."
+    )

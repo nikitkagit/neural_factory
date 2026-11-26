@@ -344,14 +344,18 @@ class Orchestrator:
             logger.debug("Task %s already failed, skipping finalization", task_id)
             return
 
+        had_success = bool(self.instance_results[task_id])
         # Default aggregation: use the last completed instance's result list
-        if self.instance_results[task_id]:
+        if had_success:
             final_state = self.instance_results[task_id][-1]
         else:
             final_state = task.state  # Fallback if all instances were skipped
 
-        if final_state != task.state:
+        state_changed = final_state != task.state
+        if state_changed:
             task.state = final_state
+
+        if state_changed or had_success:
             task.version += 1
 
         task.status = TaskStatus.DONE
