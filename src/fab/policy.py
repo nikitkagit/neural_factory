@@ -221,6 +221,44 @@ class FlattenMergePolicy(InputMergePolicy):
                 result.append({src_id: state})
         return result
 
+class SoftCartesianMergePolicy(InputMergePolicy):
+    """
+    Cartesian product of all incoming lists.
+    If any source list is empty, it is treated as a single empty dict [{}] instead of
+    causing the entire result to be empty. This means empty lists act as neutral elements
+    (like '1' in multiplication) rather than zeroing elements (like '0').
+    """
+
+    def merge(self, incoming: Dict[TaskId, List[Dict[str, Any]]], priority_map: Optional[Dict[TaskId, int]] = None) -> List[Dict[str, Any]]:
+        if not incoming:
+            return [{}]
+
+        # Treat empty lists as [{}] — neutral element for cartesian product
+        normalized = {
+            src_id: (states if states else [{}])
+            for src_id, states in incoming.items()
+        }
+
+        if priority_map is None:
+            priority_map = {k: 0 for k in normalized.keys()}
+
+        keys = list(normalized.keys())
+        combos = itertools.product(*(normalized[k] for k in keys))
+        result = []
+        for combo in combos:
+            merged = {}
+            for d, src_id in zip(combo, keys):
+                src_priority = priority_map.get(src_id, 0)
+                for k, v in d.items():
+                    if k not in merged:
+                        merged[k] = (v, src_priority)
+                    else:
+                        existing_priority = merged[k][1]
+                        if src_priority > existing_priority:
+                            merged[k] = (v, src_priority)
+            final_merged = {k: v[0] for k, v in merged.items()}
+            result.append(final_merged)
+        return result
 
 # ---------------------------------------------------------------------------
 # Failure policies
