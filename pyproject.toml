@@ -1,0 +1,12 @@
+[project]
+name = "neural_factory"
+version = "0.1.0"
+dependencies = [
+    "requests>=2.34",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.2",
+    "Pygments>=2.21",
+]
