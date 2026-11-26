@@ -31,16 +31,7 @@ from src.fab.policy import OncePolicy, AllPolicy, CartesianProductMergePolicy
 from src.tasks.base_tasks import ConstantTask, ReadCodeFilesTask, WriteToFileTask, ReadFileTask
 from src.tasks.ai_tasks import SpecTestWriterTask
 from src.config import config
-from src.utils import AiClient
-
-
-def setup_logging() -> None:
-    """Configures logging based on the debug flag in config."""
-    log_level = logging.DEBUG if config.debug else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-    )
+from src.utils import AiClient, setup_logging
 
 
 def main():

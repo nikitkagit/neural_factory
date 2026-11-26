@@ -4,16 +4,7 @@ import os
 
 from src.config import config
 from src.prompt import Prompt, BE_SHORT, PYTHON_CODE_ONLY, PATHS_RELATIVE_TO_ROOT
-from src.utils import AiClient
-
-
-def setup_logging() -> None:
-    """Configures logging based on the debug flag in config."""
-    log_level = logging.DEBUG if config.debug else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-    )
+from src.utils import AiClient, setup_logging
 
 
 def main() -> None:

@@ -177,3 +177,12 @@ def recalculate_diff_headers(diff_text: str) -> str:
         i = j
 
     return "".join(result)
+
+
+def setup_logging() -> None:
+    """Configures logging based on the debug flag in config."""
+    log_level = logging.DEBUG if config.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    )
