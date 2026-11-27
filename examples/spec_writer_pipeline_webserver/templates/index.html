@@ -25,13 +25,16 @@
         .status-message.success { background: #d4edda; border-color: #c3e6cb; color: #155724; }
         .hint { color: #666; font-size: 13px; }
         label { display: block; font-weight: 600; margin: 10px 0 5px; }
+        .input-row { display: flex; align-items: center; gap: 10px; }
+        .input-row input[type="text"] { flex: 1; }
+        .input-row label { white-space: nowrap; margin: 0; }
+        .input-field-wrapper { flex: 1; }
     </style>
 </head>
 <body>
     <h1>Spec Writer Pipeline</h1>
 
-    <!-- Single dynamic panel: its content changes with the pipeline stage
-         (working -> review -> accepted / error). No duplicated result blocks. -->
+    <!-- Single dynamic panel -->
     <div class="container" id="spec-section" style="display:none;">
         <h2 id="spec-title">Review Specification</h2>
         <p class="hint">You can edit the specification text below and the request above, then press Edit to regenerate.</p>
@@ -44,14 +47,18 @@
         <div id="review-status" class="status-message" style="display:none;"></div>
     </div>
 
-    <!-- Input form: ALWAYS visible and editable, including during review.
-         The user can change the request at any time and press Edit to regenerate. -->
+    <!-- Input form -->
     <div class="container" id="input-section">
         <h2>Input</h2>
         <label for="request-text">Request (what should be done)</label>
         <textarea id="request-text" placeholder="e.g., Add type hints and docstrings"></textarea>
-        <label for="input-text">Files and directories (space-separated)</label>
-        <input type="text" id="input-text" name="input-text" placeholder="e.g., src/file1.py examples/dir src/utils.py">
+        <label>Files and directories (space-separated)</label>
+        <div class="input-row">
+            <div class="input-field-wrapper">
+                <input type="text" id="input-text" name="input-text" placeholder="e.g., src/file1.py examples/dir src/utils.py">
+            </div>
+            <input type="text" id="project-path" name="project_path" placeholder="Absolute path to project folder (optional)">
+        </div>
         <div>
             <button class="btn-primary" id="run-btn" onclick="runPipeline()">Run</button>
             <button class="btn-danger" id="stop-btn" onclick="stopServer()">Stop Server</button>
@@ -60,10 +67,6 @@
     </div>
 
     <script>
-        // UI state machine:
-        //   busy          - a network cycle (/run, /review, /specification) is in flight
-        //   reviewPending - a specification is shown and waiting for a user decision
-        //   finished      - the spec was accepted or the server was stopped
         let busy = false;
         let reviewPending = false;
         let finished = false;
@@ -88,7 +91,6 @@
             $('retry-btn').disabled = reviewDisabled;
         }
 
-        // Render the single specification panel according to the current stage.
         function setPanel(state, text, message, messageType) {
             const panel = $('spec-section');
             if (state === 'hidden') { panel.style.display = 'none'; return; }
@@ -123,20 +125,23 @@
             updateButtons();
         }
 
-        // POST /run with the current form values and wait for the first specification.
-        // Does not manage the busy flag; callers are responsible for it.
         async function performRun() {
             const requestText = $('request-text').value.trim();
             const inputText = $('input-text').value.trim();
+            const projectPath = $('project-path').value.trim();
             if (!requestText) {
                 setPanel('error', undefined, 'Request must not be empty.', 'error');
                 return;
             }
             setPanel('working', undefined, 'Running pipeline...');
+            const payload = { request: requestText, input: inputText };
+            if (projectPath) {
+                payload.project_path = projectPath;
+            }
             const response = await fetch('/run', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ request: requestText, input: inputText }),
+                body: JSON.stringify(payload),
             });
             const result = await response.json();
             if (result.status === 'success') {
@@ -163,8 +168,6 @@
         async function submitReview(decision) {
             if (busy || !reviewPending || finished) return;
 
-            // Send the (possibly edited) specification AND the current request,
-            // so the user can refine the task before regenerating.
             const specText = $('specification-text').value;
             const requestText = $('request-text').value.trim();
 
@@ -193,7 +196,6 @@
                 }
 
                 if (decision === 'edit') {
-                    // The graph regenerates the spec via spec_writer; long-poll for it.
                     setPanel('working', specText, 'Regenerating specification...');
                     const r = await fetch('/specification');
                     const j = await r.json();
@@ -204,8 +206,6 @@
                         setPanel('error', undefined, j.message || 'Regeneration failed', 'error');
                     }
                 } else {
-                    // Retry routes back to web_input, which waits for new form data.
-                    // Re-run with the current (possibly edited) form values.
                     setPanel('working', specText, 'Retrying with current inputs...');
                     await performRun();
                 }

@@ -197,7 +197,22 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         request_text = data.get("request", "")
         input_text = data.get("input", "")
+        project_path = data.get("project_path", "")
         directories, files = self._parse_input(input_text)
+
+        # If project_path is non-empty, add it to both directories and files lists
+        # so that the pipeline (which does not support a separate project_path parameter)
+        # can still process it as a root location.
+        if project_path:
+            project_path_stripped = project_path.rstrip("/")
+            directories = [
+                os.path.join(project_path_stripped, d) if not os.path.isabs(d) else d
+                for d in directories
+            ]
+            files = [
+                os.path.join(project_path_stripped, f) if not os.path.isabs(f) else f
+                for f in files
+            ]
 
         # Reset the ready flag so we wait for the NEW specification, not a stale one.
         self.server_app.specification_ready.clear()
