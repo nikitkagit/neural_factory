@@ -96,7 +96,7 @@ CODE_COMMENTS_ENGLISH = Prompt(
 
 SPEC_FORMAT = Prompt(
     """
-    The specification MUST have a strict structure with these sections:
+    The answer MUST have a strict structure with these sections:
     ## Цель [The overall goal of the changes. Contains a reformulated and more rigorously described main request.]
     ## Необходимые файлы [which contain the information necessary for implementation. here you only need to provide a list of files in the format without - symbol before it: path/to/file.code.]
     ## Изменяемые файлы [which will need to be edited. Similar format.]
@@ -115,10 +115,8 @@ GEN_SPEC = Prompt(
 )
 REGEN_SPEC = Prompt(
     """
-    Rewrite this specification in accordance with the requirements of the main request in Russian.
-    The primary request contains requirements for modifying the old specification, rather than a new specification.
-    You MUST make exactly those changes that are specified in the request.
-    You MUST output ONLY the full text of the rewrited previoius specification.
+    You MUST rewrite draft of input text, incorporating the adjustments from the main request in Russian.
+    You MUST to provide the full text of the specification in your response.
     """,
     priority=3000
 )
@@ -156,4 +154,4 @@ def make_specification_prompt(spec: str, priority: int = 7010) -> Prompt:
     return Prompt(f"Main specification: {spec}", priority=priority)
 
 def make_previous_specification_prompt(spec: str, priority: int = 2020) -> Prompt:
-    return Prompt(f"Previous specification: {spec}", priority=priority)
+    return Prompt(f"Draft of input text: {spec}", priority=priority)
