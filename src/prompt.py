@@ -117,6 +117,7 @@ REGEN_SPEC = Prompt(
     """
     Rewrite this specification in accordance with the requirements of the main request in Russian.
     You MUST make exactly those changes that are specified in the request.
+    You MUST preserve the rest of the specification that is not affected by the changes.
     """,
     priority=3000
 )
