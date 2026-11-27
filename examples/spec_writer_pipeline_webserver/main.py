@@ -262,8 +262,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         """
         Parse a space-separated string into directories and files.
         Directories are paths that end with '/' or are existing directories.
+        Returns ([], []) for empty or whitespace-only input.
         """
-        parts = input_text.strip().split()
+        stripped = input_text.strip()
+        if not stripped:
+            return [], []
+
+        parts = stripped.split()
         directories = []
         files = []
 

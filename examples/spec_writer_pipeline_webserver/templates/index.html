@@ -10,6 +10,7 @@
         h2 { margin-top: 0; }
         .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
         textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; resize: vertical; min-height: 80px; box-sizing: border-box; font-family: inherit; }
+        input[type="text"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; font-family: inherit; }
         #specification-text { min-height: 320px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #f8f9fa; }
         #specification-text[readonly] { background: #eee; color: #555; }
         button { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin: 5px 5px 5px 0; }
@@ -29,21 +30,6 @@
 <body>
     <h1>Spec Writer Pipeline</h1>
 
-    <!-- Input form: ALWAYS visible and editable, including during review.
-         The user can change the request at any time and press Edit to regenerate. -->
-    <div class="container" id="input-section">
-        <h2>Input</h2>
-        <label for="request-text">Request (what should be done)</label>
-        <textarea id="request-text" placeholder="e.g., Add type hints and docstrings"></textarea>
-        <label for="input-text">Files and directories (space-separated)</label>
-        <textarea id="input-text" placeholder="e.g., src/file1.py examples/dir src/utils.py"></textarea>
-        <div>
-            <button class="btn-primary" id="run-btn" onclick="runPipeline()">Run</button>
-            <button class="btn-danger" id="stop-btn" onclick="stopServer()">Stop Server</button>
-        </div>
-        <div id="status-message" class="status-message" style="display:none;"></div>
-    </div>
-
     <!-- Single dynamic panel: its content changes with the pipeline stage
          (working -> review -> accepted / error). No duplicated result blocks. -->
     <div class="container" id="spec-section" style="display:none;">
@@ -56,6 +42,21 @@
             <button class="btn-info" id="retry-btn" onclick="submitReview('retry')">Retry</button>
         </div>
         <div id="review-status" class="status-message" style="display:none;"></div>
+    </div>
+
+    <!-- Input form: ALWAYS visible and editable, including during review.
+         The user can change the request at any time and press Edit to regenerate. -->
+    <div class="container" id="input-section">
+        <h2>Input</h2>
+        <label for="request-text">Request (what should be done)</label>
+        <textarea id="request-text" placeholder="e.g., Add type hints and docstrings"></textarea>
+        <label for="input-text">Files and directories (space-separated)</label>
+        <input type="text" id="input-text" name="input-text" placeholder="e.g., src/file1.py examples/dir src/utils.py">
+        <div>
+            <button class="btn-primary" id="run-btn" onclick="runPipeline()">Run</button>
+            <button class="btn-danger" id="stop-btn" onclick="stopServer()">Stop Server</button>
+        </div>
+        <div id="status-message" class="status-message" style="display:none;"></div>
     </div>
 
     <script>
@@ -127,8 +128,8 @@
         async function performRun() {
             const requestText = $('request-text').value.trim();
             const inputText = $('input-text').value.trim();
-            if (!requestText || !inputText) {
-                setPanel('error', undefined, 'Request and file paths must not be empty.', 'error');
+            if (!requestText) {
+                setPanel('error', undefined, 'Request must not be empty.', 'error');
                 return;
             }
             setPanel('working', undefined, 'Running pipeline...');
