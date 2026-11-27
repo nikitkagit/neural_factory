@@ -116,8 +116,9 @@ GEN_SPEC = Prompt(
 REGEN_SPEC = Prompt(
     """
     Rewrite this specification in accordance with the requirements of the main request in Russian.
+    The primary request contains requirements for modifying the old specification, rather than a new specification.
     You MUST make exactly those changes that are specified in the request.
-    You MUST preserve the rest of the specification that is not affected by the changes.
+    You MUST output ONLY the full text of the rewrited previoius specification.
     """,
     priority=3000
 )
@@ -154,5 +155,5 @@ def make_code_prompt(code: str, priority: int = 7000) -> Prompt:
 def make_specification_prompt(spec: str, priority: int = 7010) -> Prompt:
     return Prompt(f"Main specification: {spec}", priority=priority)
 
-def make_previous_specification_prompt(spec: str, priority: int = 7020) -> Prompt:
+def make_previous_specification_prompt(spec: str, priority: int = 2020) -> Prompt:
     return Prompt(f"Previous specification: {spec}", priority=priority)
