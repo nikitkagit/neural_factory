@@ -96,12 +96,13 @@ CODE_SEARCH_REPLACE_ONLY = Prompt(
     """
     You must implement the code changes in accordance with the specification.
     In your response, provide a list of blocks, each following this format:
+    `
     [</path/to/code/file>]
     [SEARCH]
     <exact snippet of the old code. Write only END here if you want to insert this at the end of the file, or only BEGIN if at the beginning.>
     [REPLACE]
     <new code snippet>
-
+    `
     The output format MUST be followed strictly. You are FORBIDDEN from writing anything else.
     """,
     priority=7100
