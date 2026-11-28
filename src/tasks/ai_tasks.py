@@ -1,10 +1,12 @@
+import re
+
 from typing import Any, Dict, List, Optional
 
 from src.fab.task import Task, TaskId
 from src.prompt import (
     Prompt, make_request_prompt, make_code_prompt, make_specification_prompt,
     make_previous_specification_prompt,
-    SPEC_FORMAT, GEN_SPEC, REGEN_SPEC, NO_CODE, GEN_SPEC_FOR_TESTS
+    SPEC_FORMAT, GEN_SPEC, REGEN_SPEC, NO_CODE, GEN_SPEC_FOR_TESTS, CODE_SEARCH_REPLACE_ONLY
 )
 from src.fab.policy import (
     ActivationPolicy, OncePolicy, 
@@ -184,3 +186,83 @@ class SpecTestWriterTask(Task):
             result["specification_input"] = specification
 
         return [result]
+
+
+class SpecToScriptTask(Task):
+    """
+    Generates a script according to a specification using an AI agent.
+    Accepts 'specification' (str) and 'code' (str) in inputs.
+    Returns a list of triples: [{"output": [{"filepath": str, "search": str, "replace": str}, ...]}].
+    The agent's response must strictly follow the CODE_SEARCH_REPLACE_ONLY format.
+    """
+
+    def __init__(
+        self,
+        task_id: TaskId,
+        ai_client: AiClient,
+        activation_policy: ActivationPolicy = OncePolicy(),
+        merge_policy: Optional[InputMergePolicy] = None,
+        failure_policy: Optional[FailurePolicy] = None,
+    ):
+        super().__init__(task_id, activation_policy, merge_policy, failure_policy)
+        self._ai_client = ai_client
+
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+        specification = inputs.get("specification")
+        code = inputs.get("code")
+
+        if specification is None or not isinstance(specification, str):
+            raise ValueError("Input must contain 'specification' (str).")
+        if code is None or not isinstance(code, str):
+            raise ValueError("Input must contain 'code' (str).")
+
+        # Build the combined prompt
+        combined_prompt = CODE_SEARCH_REPLACE_ONLY + make_code_prompt(code) + make_specification_prompt(specification)
+
+        payload = {"messages": [{"role": "user", "content": str(combined_prompt)}]}
+        response_text = self._ai_client.call(payload)
+
+        # Parse the response: extract all blocks in CODE_SEARCH_REPLACE_ONLY format
+        triples = self._parse_search_replace_blocks(response_text)
+
+        return [{"output": triples}]
+
+    def _parse_search_replace_blocks(self, text: str) -> List[Dict[str, str]]:
+        """
+        Parses a response text and extracts all blocks in the format:
+        [</path/to/code/file>]
+        [SEARCH]
+        <exact snippet of the old code>
+        [REPLACE]
+        <new code snippet>
+
+        Returns a list of dicts with keys: filepath, search, replace.
+        If no valid blocks are found, returns an empty list.
+        """
+        blocks: List[Dict[str, str]] = []
+
+        # Split text into individual blocks by filepath headers
+        # Pattern matches [</path/to/file>] optionally preceded by whitespace
+        block_pattern = re.compile(
+            r'\[\s*(/[^\]]+)\s*\]\s*'  # [</path/to/file>]
+            r'(.*?)(?=\s*\[\s*/[^\]]+\s*\]|\s*$)',  # content until next block or end
+            re.DOTALL
+        )
+
+        for match in block_pattern.finditer(text):
+            filepath = match.group(1).strip()
+            content = match.group(2).strip()
+
+            # Parse search/replace within this block
+            search_match = re.search(r'\[SEARCH\]\s*(.*?)\s*\[REPLACE\]\s*(.*)', content, re.DOTALL)
+            if search_match:
+                search = search_match.group(1).strip()
+                replace = search_match.group(2).strip()
+                if search and replace:
+                    blocks.append({
+                        "filepath": filepath,
+                        "search": search,
+                        "replace": replace
+                    })
+
+        return blocks

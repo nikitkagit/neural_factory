@@ -2,9 +2,9 @@ import pytest
 import re
 from unittest.mock import MagicMock, patch, call
 
-from src.tasks.ai_tasks import CallAITask, SpecWriterTask, SpecTestWriterTask
+from src.tasks.ai_tasks import CallAITask, SpecWriterTask, SpecTestWriterTask, SpecToScriptTask
 from src.fab.policy import OncePolicy
-from src.prompt import Prompt
+from src.prompt import Prompt, CODE_SEARCH_REPLACE_ONLY
 from src.utils import AiClient
 
 
@@ -222,6 +222,150 @@ class TestSpecWriterTask:
         # Without previous_specification
         result2 = task.run({"code": "x = 1", "request": "test"})
         assert "previous_specification" not in result2[0]
+
+
+# ---------------------------------------------------------------------------
+# TestSpecToScriptTask
+# ---------------------------------------------------------------------------
+
+class TestSpecToScriptTask:
+    """Tests for SpecToScriptTask."""
+
+    def test_run_with_valid_inputs(self, mock_ai_client):
+        """Checks that run calls ai_client once and returns correct structure."""
+        task = SpecToScriptTask(task_id="test", ai_client=mock_ai_client)
+        mock_ai_client.call.return_value = (
+            "[/path/to/file.py]\n"
+            "[SEARCH]\n"
+            "old code\n"
+            "[REPLACE]\n"
+            "new code\n"
+        )
+        result = task.run({"specification": "some spec", "code": "some code"})
+
+        mock_ai_client.call.assert_called_once()
+        payload = mock_ai_client.call.call_args[0][0]
+        content = payload["messages"][0]["content"]
+        assert str(CODE_SEARCH_REPLACE_ONLY) in content
+        assert "some code" in content
+        assert "some spec" in content
+
+        assert len(result) == 1
+        assert "output" in result[0]
+        assert len(result[0]["output"]) == 1
+        assert result[0]["output"][0]["filepath"] == "/path/to/file.py"
+        assert result[0]["output"][0]["search"] == "old code"
+        assert result[0]["output"][0]["replace"] == "new code"
+
+    def test_run_missing_specification(self, mock_ai_client):
+        """Checks that missing specification raises ValueError."""
+        task = SpecToScriptTask(task_id="test", ai_client=mock_ai_client)
+        with pytest.raises(ValueError, match="Input must contain 'specification' \\(str\\)\\."):
+            task.run({"code": "some code"})
+
+    def test_run_missing_code(self, mock_ai_client):
+        """Checks that missing code raises ValueError."""
+        task = SpecToScriptTask(task_id="test", ai_client=mock_ai_client)
+        with pytest.raises(ValueError, match="Input must contain 'code' \\(str\\)\\."):
+            task.run({"specification": "some spec"})
+
+    def test_run_empty_specification(self, mock_ai_client):
+        """Checks that empty specification is passed in prompt and result contains output."""
+        task = SpecToScriptTask(task_id="test", ai_client=mock_ai_client)
+        mock_ai_client.call.return_value = ""
+        result = task.run({"specification": "", "code": "some code"})
+
+        mock_ai_client.call.assert_called_once()
+        payload = mock_ai_client.call.call_args[0][0]
+        content = payload["messages"][0]["content"]
+        assert "some code" in content
+
+        assert len(result) == 1
+        assert "output" in result[0]
+
+    def test_run_empty_code(self, mock_ai_client):
+        """Checks that empty code is passed in prompt and result contains output."""
+        task = SpecToScriptTask(task_id="test", ai_client=mock_ai_client)
+        mock_ai_client.call.return_value = ""
+        result = task.run({"specification": "some spec", "code": ""})
+
+        mock_ai_client.call.assert_called_once()
+        payload = mock_ai_client.call.call_args[0][0]
+        content = payload["messages"][0]["content"]
+        assert "some spec" in content
+
+        assert len(result) == 1
+        assert "output" in result[0]
+
+    def test_parse_response_with_valid_blocks(self, mock_ai_client):
+        """Checks that multiple valid blocks are parsed correctly."""
+        task = SpecToScriptTask(task_id="test", ai_client=mock_ai_client)
+        mock_ai_client.call.return_value = (
+            "[/path/to/a.py]\n"
+            "[SEARCH]\n"
+            "old a\n"
+            "[REPLACE]\n"
+            "new a\n"
+            "[/path/to/b.py]\n"
+            "[SEARCH]\n"
+            "old b\n"
+            "[REPLACE]\n"
+            "new b\n"
+        )
+        result = task.run({"specification": "spec", "code": "code"})
+
+        assert len(result) == 1
+        assert len(result[0]["output"]) == 2
+        assert result[0]["output"][0]["filepath"] == "/path/to/a.py"
+        assert result[0]["output"][0]["search"] == "old a"
+        assert result[0]["output"][0]["replace"] == "new a"
+        assert result[0]["output"][1]["filepath"] == "/path/to/b.py"
+        assert result[0]["output"][1]["search"] == "old b"
+        assert result[0]["output"][1]["replace"] == "new b"
+
+    def test_parse_response_with_no_blocks(self, mock_ai_client):
+        """Checks that response without blocks returns empty output."""
+        task = SpecToScriptTask(task_id="test", ai_client=mock_ai_client)
+        mock_ai_client.call.return_value = "OK"
+        result = task.run({"specification": "spec", "code": "code"})
+
+        assert result == [{"output": []}]
+
+    def test_parse_response_with_malformed_blocks(self, mock_ai_client):
+        """Checks that malformed blocks are skipped and only valid ones are returned."""
+        task = SpecToScriptTask(task_id="test", ai_client=mock_ai_client)
+        mock_ai_client.call.return_value = (
+            "[/path/to/valid.py]\n"
+            "[SEARCH]\n"
+            "valid search\n"
+            "[REPLACE]\n"
+            "valid replace\n"
+            "[/path/to/malformed.py]\n"
+            "[SEARCH]\n"
+            "missing replace\n"
+            "[/path/to/valid2.py]\n"
+            "[SEARCH]\n"
+            "valid2 search\n"
+            "[REPLACE]\n"
+            "valid2 replace\n"
+        )
+        result = task.run({"specification": "spec", "code": "code"})
+
+        assert len(result) == 1
+        # Only the two valid blocks should be parsed
+        assert len(result[0]["output"]) == 2
+        assert result[0]["output"][0]["filepath"] == "/path/to/valid.py"
+        assert result[0]["output"][1]["filepath"] == "/path/to/valid2.py"
+
+    def test_run_with_non_string_inputs(self, mock_ai_client):
+        """Checks that non-string specification or code raises ValueError."""
+        task = SpecToScriptTask(task_id="test", ai_client=mock_ai_client)
+
+        with pytest.raises(ValueError, match="Input must contain 'specification' \\(str\\)\\."):
+            task.run({"specification": 123, "code": "some code"})
+
+        with pytest.raises(ValueError, match="Input must contain 'code' \\(str\\)\\."):
+            task.run({"specification": "some spec", "code": 456})
 
 
 # ---------------------------------------------------------------------------
