@@ -6,7 +6,7 @@ from src.fab.policy import (
     OncePolicy, InputMergePolicy, FailurePolicy
 )
 
-from src.tasks.base_tasks import ReadFileTask, ReadCodeFilesTask, WriteToFileTask, ConstantTask
+from src.tasks.base_tasks import ReadFileTask, ReadCodeFilesTask, WriteToFileTask, SearchReplaceTask
 
 
 class TestReadFileTask(unittest.TestCase):
@@ -242,6 +242,135 @@ class TestWriteToFileTask(unittest.TestCase):
         self.task.run({"input": "", "filepath": filepath})
         with open(filepath, "r") as f:
             self.assertEqual(f.read(), "")
+
+
+class TestSearchReplaceTask(unittest.TestCase):
+    """Tests for SearchReplaceTask."""
+
+    def setUp(self):
+        self.task = SearchReplaceTask(task_id="search_replace_test")
+        self.temp_dir = tempfile.mkdtemp()
+
+    def _create_temp_file(self, content: str, filename: str = "test.txt") -> str:
+        filepath = os.path.join(self.temp_dir, filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+
+    def test_init_with_default_policies(self):
+        """Should use OncePolicy by default and have non-None merge/failure policies."""
+        task = SearchReplaceTask(task_id="test_init")
+        self.assertIsInstance(task.activation_policy, OncePolicy)
+        self.assertIsNotNone(task.merge_policy)
+        self.assertIsNotNone(task.failure_policy)
+
+    def test_insert_begin_existing_file(self):
+        """Should insert text at the beginning of an existing file."""
+        filepath = self._create_temp_file("world")
+        result = self.task.run({"filepath": filepath, "search": "BEGIN", "replace": "hello "})
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0]["modified"])
+        with open(filepath, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "hello world")
+
+    def test_insert_end_existing_file(self):
+        """Should insert text at the end of an existing file."""
+        filepath = self._create_temp_file("hello ")
+        result = self.task.run({"filepath": filepath, "search": "END", "replace": "world"})
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0]["modified"])
+        with open(filepath, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "hello world")
+
+    def test_replace_substring(self):
+        """Should replace all occurrences of a substring."""
+        filepath = self._create_temp_file("foo bar foo")
+        result = self.task.run({"filepath": filepath, "search": "foo", "replace": "baz"})
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0]["modified"])
+        with open(filepath, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "baz bar baz")
+
+    def test_relative_path_resolved(self):
+        """Should resolve relative paths to absolute paths."""
+        filepath = self._create_temp_file("content", filename="subdir/test.txt")
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(self.temp_dir)
+            result = self.task.run({"filepath": "subdir/test.txt", "search": "BEGIN", "replace": "prefix"})
+        finally:
+            os.chdir(old_cwd)
+        self.assertTrue(os.path.isabs(result[0]["filepath"]))
+        with open(result[0]["filepath"], "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "prefixcontent")
+
+    def test_insert_begin_nonexistent_file(self):
+        """Should create a new file with content when inserting at BEGIN on nonexistent file."""
+        filepath = os.path.join(self.temp_dir, "new_file.txt")
+        result = self.task.run({"filepath": filepath, "search": "BEGIN", "replace": "new content"})
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0]["modified"])
+        self.assertTrue(os.path.exists(filepath))
+        with open(filepath, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "new content")
+
+    def test_insert_end_nonexistent_file(self):
+        """Should create a new file with content when inserting at END on nonexistent file."""
+        filepath = os.path.join(self.temp_dir, "new_file.txt")
+        result = self.task.run({"filepath": filepath, "search": "END", "replace": "new content"})
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0]["modified"])
+        self.assertTrue(os.path.exists(filepath))
+        with open(filepath, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "new content")
+
+    def test_replace_nonexistent_file_raises_error(self):
+        """Should raise FileNotFoundError when replacing in a nonexistent file."""
+        with self.assertRaises(FileNotFoundError):
+            self.task.run({"filepath": "/nonexistent/file.txt", "search": "foo", "replace": "bar"})
+
+    def test_missing_filepath_raises_error(self):
+        """Should raise ValueError when filepath is missing."""
+        with self.assertRaises(ValueError) as ctx:
+            self.task.run({"search": "BEGIN", "replace": "content"})
+        self.assertIn("filepath", str(ctx.exception))
+
+    def test_missing_search_raises_error(self):
+        """Should raise ValueError when search is missing."""
+        with self.assertRaises(ValueError) as ctx:
+            self.task.run({"filepath": "/tmp/test.txt", "replace": "content"})
+        self.assertIn("search", str(ctx.exception))
+
+    def test_missing_replace_raises_error(self):
+        """Should raise ValueError when replace is missing."""
+        with self.assertRaises(ValueError) as ctx:
+            self.task.run({"filepath": "/tmp/test.txt", "search": "BEGIN"})
+        self.assertIn("replace", str(ctx.exception))
+
+    def test_insert_begin_empty_file(self):
+        """Should insert content at the beginning of an empty file."""
+        filepath = self._create_temp_file("")
+        result = self.task.run({"filepath": filepath, "search": "BEGIN", "replace": "content"})
+        self.assertTrue(result[0]["modified"])
+        with open(filepath, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "content")
+
+    def test_insert_end_empty_file(self):
+        """Should insert content at the end of an empty file."""
+        filepath = self._create_temp_file("")
+        result = self.task.run({"filepath": filepath, "search": "END", "replace": "content"})
+        self.assertTrue(result[0]["modified"])
+        with open(filepath, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "content")
+
+    def test_search_not_found_modified_false(self):
+        """Should return modified=False when search string is not found."""
+        filepath = self._create_temp_file("hello world")
+        result = self.task.run({"filepath": filepath, "search": "nonexistent", "replace": "replacement"})
+        self.assertFalse(result[0]["modified"])
+        with open(filepath, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "hello world")
 
 
 if __name__ == "__main__":

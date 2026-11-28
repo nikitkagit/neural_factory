@@ -284,3 +284,61 @@ class SWriteCodeFilesTask(Task):
             written_paths.append(file_path)
 
         return [{"written_files": written_paths}]
+
+
+class SearchReplaceTask(Task):
+    """
+    Searches for a fragment of code in a file and replaces it with a new fragment.
+    Supports special search values "BEGIN" and "END" to insert at the start or end.
+    """
+
+    def __init__(
+        self,
+        task_id: TaskId,
+        activation_policy: ActivationPolicy = OncePolicy(),
+        merge_policy: Optional[InputMergePolicy] = None,
+        failure_policy: Optional[FailurePolicy] = None,
+    ):
+        super().__init__(task_id, activation_policy, merge_policy, failure_policy)
+
+    def run(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+        filepath = inputs.get("filepath")
+        search = inputs.get("search")
+        replace = inputs.get("replace")
+
+        if filepath is None or search is None or replace is None:
+            raise ValueError("Inputs 'filepath', 'search', and 'replace' are all required.")
+
+        # Resolve relative path to absolute path
+        abs_filepath = os.path.abspath(filepath)
+
+        if search == "BEGIN" or search == "END":
+            if not os.path.exists(abs_filepath):
+                # Create new file with replace content
+                parent_dir = os.path.dirname(abs_filepath)
+                if parent_dir:
+                    os.makedirs(parent_dir, exist_ok=True)
+                with open(abs_filepath, "w", encoding="utf-8") as f:
+                    f.write(replace)
+                return [{"filepath": abs_filepath, "search": search, "replace": replace, "modified": True}]
+            else:
+                with open(abs_filepath, "r", encoding="utf-8") as f:
+                    old_content = f.read()
+                if search == "BEGIN":
+                    new_content = replace + old_content
+                else:  # search == "END"
+                    new_content = old_content + replace
+                modified = (new_content != old_content)
+                with open(abs_filepath, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                return [{"filepath": abs_filepath, "search": search, "replace": replace, "modified": modified}]
+        else:
+            if not os.path.exists(abs_filepath):
+                raise FileNotFoundError(f"File not found: {abs_filepath}")
+            with open(abs_filepath, "r", encoding="utf-8") as f:
+                old_content = f.read()
+            new_content = old_content.replace(search, replace)
+            modified = (new_content != old_content)
+            with open(abs_filepath, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            return [{"filepath": abs_filepath, "search": search, "replace": replace, "modified": modified}]
