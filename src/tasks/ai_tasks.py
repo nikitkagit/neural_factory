@@ -104,7 +104,7 @@ class SpecWriterTask(Task):
             "max_tokens": 4999,
             "temperature": 1.0,
             "provider": {
-                "only": ["fireworks"]
+                "only": ["baidu", "streamlake"]
             }
         }
         
@@ -170,7 +170,7 @@ class SpecTestWriterTask(Task):
             "max_tokens": 4999,
             "temperature": 0.03,
             "provider": {
-                "only": ["fireworks"]
+                "only": ["baidu", "streamlake"]
             }
         }
 
@@ -192,7 +192,7 @@ class SpecToScriptTask(Task):
     """
     Generates a script according to a specification using an AI agent.
     Accepts 'specification' (str) and 'code' (str) in inputs.
-    Returns a list of triples: [{"output": [{"filepath": str, "search": str, "replace": str}, ...]}].
+    Returns a list of dicts: [{"filepath": str, "search": str, "replace": str}, ...].
     The agent's response must strictly follow the CODE_SEARCH_REPLACE_ONLY format.
     """
 
@@ -225,7 +225,7 @@ class SpecToScriptTask(Task):
         # Parse the response: extract all blocks in CODE_SEARCH_REPLACE_ONLY format
         triples = self._parse_search_replace_blocks(response_text)
 
-        return [{"output": triples}]
+        return triples
 
     def _parse_search_replace_blocks(self, text: str) -> List[Dict[str, str]]:
         """

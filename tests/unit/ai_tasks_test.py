@@ -251,11 +251,9 @@ class TestSpecToScriptTask:
         assert "some spec" in content
 
         assert len(result) == 1
-        assert "output" in result[0]
-        assert len(result[0]["output"]) == 1
-        assert result[0]["output"][0]["filepath"] == "/path/to/file.py"
-        assert result[0]["output"][0]["search"] == "old code"
-        assert result[0]["output"][0]["replace"] == "new code"
+        assert result[0]["filepath"] == "/path/to/file.py"
+        assert result[0]["search"] == "old code"
+        assert result[0]["replace"] == "new code"
 
     def test_run_missing_specification(self, mock_ai_client):
         """Checks that missing specification raises ValueError."""
@@ -280,8 +278,7 @@ class TestSpecToScriptTask:
         content = payload["messages"][0]["content"]
         assert "some code" in content
 
-        assert len(result) == 1
-        assert "output" in result[0]
+        assert result == []
 
     def test_run_empty_code(self, mock_ai_client):
         """Checks that empty code is passed in prompt and result contains output."""
@@ -294,8 +291,7 @@ class TestSpecToScriptTask:
         content = payload["messages"][0]["content"]
         assert "some spec" in content
 
-        assert len(result) == 1
-        assert "output" in result[0]
+        assert result == []
 
     def test_parse_response_with_valid_blocks(self, mock_ai_client):
         """Checks that multiple valid blocks are parsed correctly."""
@@ -314,14 +310,13 @@ class TestSpecToScriptTask:
         )
         result = task.run({"specification": "spec", "code": "code"})
 
-        assert len(result) == 1
-        assert len(result[0]["output"]) == 2
-        assert result[0]["output"][0]["filepath"] == "/path/to/a.py"
-        assert result[0]["output"][0]["search"] == "old a"
-        assert result[0]["output"][0]["replace"] == "new a"
-        assert result[0]["output"][1]["filepath"] == "/path/to/b.py"
-        assert result[0]["output"][1]["search"] == "old b"
-        assert result[0]["output"][1]["replace"] == "new b"
+        assert len(result) == 2
+        assert result[0]["filepath"] == "/path/to/a.py"
+        assert result[0]["search"] == "old a"
+        assert result[0]["replace"] == "new a"
+        assert result[1]["filepath"] == "/path/to/b.py"
+        assert result[1]["search"] == "old b"
+        assert result[1]["replace"] == "new b"
 
     def test_parse_response_with_no_blocks(self, mock_ai_client):
         """Checks that response without blocks returns empty output."""
@@ -329,7 +324,7 @@ class TestSpecToScriptTask:
         mock_ai_client.call.return_value = "OK"
         result = task.run({"specification": "spec", "code": "code"})
 
-        assert result == [{"output": []}]
+        assert result == []
 
     def test_parse_response_with_malformed_blocks(self, mock_ai_client):
         """Checks that malformed blocks are skipped and only valid ones are returned."""
@@ -351,11 +346,9 @@ class TestSpecToScriptTask:
         )
         result = task.run({"specification": "spec", "code": "code"})
 
-        assert len(result) == 1
-        # Only the two valid blocks should be parsed
-        assert len(result[0]["output"]) == 2
-        assert result[0]["output"][0]["filepath"] == "/path/to/valid.py"
-        assert result[0]["output"][1]["filepath"] == "/path/to/valid2.py"
+        assert len(result) == 2
+        assert result[0]["filepath"] == "/path/to/valid.py"
+        assert result[1]["filepath"] == "/path/to/valid2.py"
 
     def test_run_with_non_string_inputs(self, mock_ai_client):
         """Checks that non-string specification or code raises ValueError."""
